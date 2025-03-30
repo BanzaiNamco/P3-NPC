@@ -1,0 +1,83 @@
+﻿@page "/upload"
+@inject HttpClient Http
+
+<h3>Upload Video</h3>
+
+<input type="file" Item="e" T="InputFileChangeEventArgs" EventCallback="HandleFileChange" />
+<button @onclick="UploadFile" disabled="@isUploading">Upload</button>
+
+<p>@message</p>
+
+<h4>Queue Status</h4>
+<p>Videos in Queue: @queueSize / 10</p>
+
+@if (queueSize >= 10) {
+        <p style="color: red;">Queue is full. Please wait before uploading more.</p>
+}
+
+@code {
+    private IBrowserFile? selectedFile;
+    private string message = "";
+    private int queueSize = 0;
+    private bool isUploading = false;
+
+    private async Task HandleFileChange(InputFileChangeEventArgs e) {
+        selectedFile = e.File;
+    }
+
+    private async Task UploadFile() {
+        if (selectedFile == null) {
+            message = "No file selected.";
+            return;
+        }
+
+        isUploading = true;
+
+        try {
+            var content = new MultipartFormDataContent();
+            var fileContent = new StreamContent(selectedFile.OpenReadStream());
+            content.Add(fileContent, "file", selectedFile.Name);
+
+            var response = await Http.PostAsync("https://localhost:5001/api/upload", content);
+
+            if (response.IsSuccessStatusCode) {
+                message = "File uploaded successfully!";
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests) {
+                message = "Upload failed: Queue is full.";
+            }
+            else {
+                message = "Upload failed.";
+            }
+
+            await GetQueueStatus();
+        }
+        catch (Exception ex) {
+            message = $"Error: {ex.Message}";
+        }
+        finally {
+            isUploading = false;
+        }
+    }
+
+    private async Task GetQueueStatus() {
+        try {
+            var response = await Http.GetFromJsonAsync<QueueStatus>("https://localhost:5001/api/upload/queue");
+            if (response != null) {
+                queueSize = response.QueueSize;
+            }
+        }
+        catch {
+            message = "Error fetching queue status.";
+        }
+    }
+
+    protected override async Task OnInitializedAsync() {
+        await GetQueueStatus();
+    }
+
+    private class QueueStatus {
+        public int QueueSize { get; set; }
+        public int MaxSize { get; set; }
+    }
+}
