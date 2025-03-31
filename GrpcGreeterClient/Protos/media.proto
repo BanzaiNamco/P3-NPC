@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+option csharp_namespace = "MediaUpload";
+
+service MediaUpload {
+  rpc UploadMedia (stream VideoChunk) returns (UploadStatus);
+}
+
+message VideoChunk {
+  string fileName = 1;
+  bytes data = 2;
+}
+
+message UploadStatus {
+  bool success = 1;
+  string message = 2;
+}
