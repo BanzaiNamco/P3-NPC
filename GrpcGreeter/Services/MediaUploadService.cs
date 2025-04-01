@@ -1,4 +1,5 @@
 using Grpc.Core;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 
 namespace MediaUpload
@@ -6,13 +7,18 @@ namespace MediaUpload
     public class MediaUploadService : MediaUpload.MediaUploadBase
     {
         private readonly string _uploadFolder = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos");
+        private readonly ConcurrentQueue<string> _videoQueue = new(); // Server-side queue
+        private readonly SemaphoreSlim _semaphore;
 
-        public MediaUploadService()
+        public MediaUploadService(int maxConcurrentThreads)
         {
             if (!Directory.Exists(_uploadFolder))
             {
                 Directory.CreateDirectory(_uploadFolder);
             }
+
+            // Initialize the semaphore with the user-defined number of threads
+            _semaphore = new SemaphoreSlim(maxConcurrentThreads);
         }
 
         public override async Task<UploadStatus> UploadMedia(IAsyncStreamReader<VideoChunk> requestStream, ServerCallContext context)
@@ -30,9 +36,32 @@ namespace MediaUpload
                 var filePath = Path.Combine(_uploadFolder, fileName);
                 await File.WriteAllBytesAsync(filePath, memoryStream.ToArray());
 
+                // Enqueue the file for processing
+                _videoQueue.Enqueue(filePath);
+                Console.WriteLine($"File enqueued: {filePath}");
+
+                // Start processing the queue
+                _ = Task.Run(() => ProcessQueueAsync());
             }
 
-            return new UploadStatus { Success = true, Message = "File uploaded successfully." };
+            return new UploadStatus { Success = true, Message = "File uploaded and enqueued successfully." };
+        }
+
+        private async Task ProcessQueueAsync()
+        {
+            while (_videoQueue.TryDequeue(out var filePath))
+            {
+                await _semaphore.WaitAsync(); // Limit concurrent processing
+                try
+                {
+                    Console.WriteLine($"Processing file: {filePath}");
+                    PreviewVideo(filePath); // Optional: Generate a preview
+                }
+                finally
+                {
+                    _semaphore.Release();
+                }
+            }
         }
 
         private void PreviewVideo(string filePath)

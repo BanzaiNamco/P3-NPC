@@ -3,8 +3,19 @@ using MediaUpload;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Ask the user for the number of concurrent threads
+Console.Write("Enter the maximum number of concurrent threads for processing: ");
+int maxConcurrentThreads;
+while (!int.TryParse(Console.ReadLine(), out maxConcurrentThreads) || maxConcurrentThreads < 1)
+{
+    Console.WriteLine("Invalid input. Please enter a positive integer.");
+}
+
 // Add services to the container.
 builder.Services.AddGrpc();
+
+// Register MediaUploadService with the user-defined number of threads
+builder.Services.AddSingleton(new MediaUploadService(maxConcurrentThreads));
 
 var app = builder.Build();
 
