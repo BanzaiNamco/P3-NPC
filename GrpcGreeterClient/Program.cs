@@ -35,10 +35,6 @@ for (int i = 0; i < threadCount; i++)
         {
             Console.WriteLine($"Thread {Task.CurrentId} uploading: {filePath}");
             var success = await UploadVideoWithRetryAsync(client, filePath);
-            if (!success)
-            {
-                Console.WriteLine($"Failed to upload: {filePath}");
-            }
         }
     }));
 }
@@ -51,7 +47,7 @@ Console.WriteLine("All uploads completed.");
 // Method to upload a single video file with retry logic
 static async Task<bool> UploadVideoWithRetryAsync(MediaUpload.MediaUpload.MediaUploadClient client, string filePath)
 {
-    const int maxRetries = 3; // Maximum number of retries
+    const int maxRetries = 1; // Maximum number of retries
     for (int attempt = 1; attempt <= maxRetries; attempt++)
     {
         try
@@ -66,7 +62,8 @@ static async Task<bool> UploadVideoWithRetryAsync(MediaUpload.MediaUpload.MediaU
                 var chunk = new VideoChunk
                 {
                     FileName = Path.GetFileName(filePath),
-                    Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead)
+                    Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead),
+                    TotalChunks = (uint)Math.Ceiling((double)fileStream.Length / buffer.Length)
                 };
 
                 await call.RequestStream.WriteAsync(chunk);
@@ -87,11 +84,12 @@ static async Task<bool> UploadVideoWithRetryAsync(MediaUpload.MediaUpload.MediaU
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error uploading {filePath} (Attempt {attempt}): {ex.Message}");
+            // write to console, message, error, and thread id
+            Console.WriteLine($"Error uploading {filePath} {ex.Message}");
         }
 
         // Wait before retrying
-        await Task.Delay(1000 * attempt); // Exponential backoff
+        // await Task.Delay(1000 * attempt); // Exponential backoff
     }
 
     return false; // Upload failed after retries

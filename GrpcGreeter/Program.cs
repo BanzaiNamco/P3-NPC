@@ -1,4 +1,3 @@
-using GrpcGreeter.Services;
 using MediaUpload;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -23,17 +22,21 @@ while (!int.TryParse(Console.ReadLine(), out maxQueueLength) || maxQueueLength <
 builder.Services.AddGrpc();
 
 // Register MediaUploadService with the user-defined number of threads and queue length
-builder.Services.AddSingleton(new MediaUploadService(maxConcurrentThreads, maxQueueLength));
+var mediaUploadService = new MediaUploadService(maxConcurrentThreads, maxQueueLength);
+builder.Services.AddSingleton(mediaUploadService);
 
 var app = builder.Build();
-
-// Configure the HTTP request pipeline.
-// Map the GreeterService (existing service)
-app.MapGrpcService<GreeterService>();
 
 // Map the MediaUploadService (new service)
 app.MapGrpcService<MediaUploadService>();
 
 app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
+
+// for shutting down the service gracefully
+var lifetime = app.Lifetime;
+lifetime.ApplicationStopping.Register(() =>
+{
+    mediaUploadService.Shutdown(); 
+});
 
 app.Run();
