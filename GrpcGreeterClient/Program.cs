@@ -1,5 +1,6 @@
 ﻿using Grpc.Net.Client;
 using MediaUpload;
+using System.Collections.Concurrent;
 
 //// The port number must match the port of the gRPC server.
 using var channel = GrpcChannel.ForAddress("https://localhost:7280");
@@ -21,14 +22,24 @@ var directory = "../../../Videos";
 // Get all video files in the directory
 var videoFiles = Directory.GetFiles(directory, "*.*", SearchOption.AllDirectories);
 
+// Use a thread-safe queue to manage video files
+var videoQueue = new ConcurrentQueue<string>(videoFiles);
+
 // Create and start threads
 var tasks = new List<Task>();
-foreach (var filePath in videoFiles)
+for (int i = 0; i < threadCount; i++)
 {
     tasks.Add(Task.Run(async () =>
     {
-        Console.WriteLine($"Uploading: {filePath}");
-        await UploadVideoAsync(client, filePath);
+        while (videoQueue.TryDequeue(out var filePath))
+        {
+            Console.WriteLine($"Thread {Task.CurrentId} uploading: {filePath}");
+            var success = await UploadVideoWithRetryAsync(client, filePath);
+            if (!success)
+            {
+                Console.WriteLine($"Failed to upload: {filePath}");
+            }
+        }
     }));
 }
 
@@ -37,27 +48,51 @@ await Task.WhenAll(tasks);
 
 Console.WriteLine("All uploads completed.");
 
-// Method to upload a single video file
-static async Task UploadVideoAsync(MediaUpload.MediaUpload.MediaUploadClient client, string filePath)
+// Method to upload a single video file with retry logic
+static async Task<bool> UploadVideoWithRetryAsync(MediaUpload.MediaUpload.MediaUploadClient client, string filePath)
 {
-    using var fileStream = File.OpenRead(filePath);
-    using var call = client.UploadMedia();
-
-    var buffer = new byte[64 * 1024]; // 64 KB buffer
-    int bytesRead;
-    while ((bytesRead = await fileStream.ReadAsync(buffer)) > 0)
+    const int maxRetries = 3; // Maximum number of retries
+    for (int attempt = 1; attempt <= maxRetries; attempt++)
     {
-        var chunk = new VideoChunk
+        try
         {
-            FileName = Path.GetFileName(filePath),
-            Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead)
-        };
+            using var fileStream = File.OpenRead(filePath);
+            using var call = client.UploadMedia();
 
-        await call.RequestStream.WriteAsync(chunk);
+            var buffer = new byte[64 * 1024]; // 64 KB buffer
+            int bytesRead;
+            while ((bytesRead = await fileStream.ReadAsync(buffer)) > 0)
+            {
+                var chunk = new VideoChunk
+                {
+                    FileName = Path.GetFileName(filePath),
+                    Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead)
+                };
+
+                await call.RequestStream.WriteAsync(chunk);
+            }
+
+            await call.RequestStream.CompleteAsync();
+            var response = await call.ResponseAsync;
+
+            if (response.Success)
+            {
+                Console.WriteLine($"Upload successful for {filePath}: {response.Message}");
+                return true; // Upload succeeded
+            }
+            else
+            {
+                Console.WriteLine($"Server rejected {filePath}: {response.Message}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error uploading {filePath} (Attempt {attempt}): {ex.Message}");
+        }
+
+        // Wait before retrying
+        await Task.Delay(1000 * attempt); // Exponential backoff
     }
 
-    await call.RequestStream.CompleteAsync();
-    var response = await call.ResponseAsync;
-
-    Console.WriteLine($"Upload status for {filePath}: {response.Message}");
+    return false; // Upload failed after retries
 }

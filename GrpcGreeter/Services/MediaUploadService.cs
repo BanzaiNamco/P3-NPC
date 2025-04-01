@@ -8,21 +8,29 @@ namespace MediaUpload
     {
         private readonly string _uploadFolder = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos");
         private readonly ConcurrentQueue<string> _videoQueue = new(); // Server-side queue
-        private readonly SemaphoreSlim _semaphore;
+        private readonly SemaphoreSlim _semaphore; // Limit concurrent processing (e.g., 4 threads)
+        private readonly int _maxQueueLength; // Maximum queue length
 
-        public MediaUploadService(int maxConcurrentThreads)
+        public MediaUploadService( int maxConcurrentThreads, int maxQueueLength)
         {
+            _semaphore = new SemaphoreSlim(maxConcurrentThreads); // Initialize semaphore with user-defined threads
+            _maxQueueLength = maxQueueLength; // Set maximum queue length
+
             if (!Directory.Exists(_uploadFolder))
             {
                 Directory.CreateDirectory(_uploadFolder);
             }
-
-            // Initialize the semaphore with the user-defined number of threads
-            _semaphore = new SemaphoreSlim(maxConcurrentThreads);
         }
 
         public override async Task<UploadStatus> UploadMedia(IAsyncStreamReader<VideoChunk> requestStream, ServerCallContext context)
         {
+            // Check if the queue is full
+            if (_videoQueue.Count >= _maxQueueLength)
+            {
+                Console.WriteLine("Queue is full. Rejecting upload.");
+                return new UploadStatus { Success = false, Message = "Queue is full. Try again later." };
+            }
+
             string fileName = null;
             using (var memoryStream = new MemoryStream())
             {
