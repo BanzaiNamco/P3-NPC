@@ -16,15 +16,17 @@ namespace MediaUpload
 
     public class MediaUploadService : MediaUpload.MediaUploadBase {
         private readonly string _uploadFolder = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos");
-        private readonly BlockingCollection<VideoEntry> _videoQueue;
-        private readonly ConcurrentDictionary<string, VideoEntry> _processingVideos = new(); // Track videos being processed
+        private readonly BlockingCollection<VideoEntry> videoQueue;
+        private readonly ConcurrentDictionary<string, bool> secondaryQueue = new();
+        private readonly int maxQueueLength = 10;
         private readonly Thread[] _workerThreads;
         private readonly int _maxConcurrentThreads;
-        private readonly object _syncLock = new(); // Lock object for synchronization
+        private readonly object objectLock = new object();
 
         public MediaUploadService(int maxConcurrentThreads, int maxQueueLength) {
             _maxConcurrentThreads = maxConcurrentThreads;
-            _videoQueue = new BlockingCollection<VideoEntry>(maxQueueLength);
+            videoQueue = new BlockingCollection<VideoEntry>(maxQueueLength);
+            this.maxQueueLength = maxQueueLength;
 
             if (!Directory.Exists(_uploadFolder)) {
                 Directory.CreateDirectory(_uploadFolder);
@@ -37,8 +39,6 @@ namespace MediaUpload
                 };
                 _workerThreads[i].Start();
             }
-            // write _processingVideos length to console
-            Console.WriteLine($"Processing videos: {_processingVideos.Count}");
         }
 
         public override async Task<UploadStatus> UploadMedia(IAsyncStreamReader<VideoChunk> requestStream, ServerCallContext context)
@@ -48,79 +48,63 @@ namespace MediaUpload
                 return new UploadStatus { Success = false, Message = "Invalid request stream." };
             }
 
-            VideoEntry videoEntry = new VideoEntry
+            VideoEntry videoEntry = new()
             {
                 VideoId = string.Empty,
                 TotalExpectedChunks = 0,
                 ReceivedChunks = 0
             };
 
-            try
+            await foreach (var chunk in requestStream.ReadAllAsync())
             {
-                // Synchronize access to the queue and processingVideos
-                lock (_syncLock)
+                // if it is the first chunk, initialize the video name
+                if (videoEntry.VideoId == string.Empty)
                 {
-                    Console.WriteLine($"Queue length: {_videoQueue.Count}, Processing videos: {_processingVideos.Count}");
-                    if (_videoQueue.Count + _processingVideos.Count >= _videoQueue.BoundedCapacity)
+                    lock (objectLock)
                     {
-                        Console.WriteLine("Q full. Rejecting video upload.");
-                        // write videoqueue length to console and processingvideos length to console
-                        Console.WriteLine($"Queue length: {_videoQueue.Count}, Processing videos: {_processingVideos.Count}");
-                        return new UploadStatus { Success = false, Message = "Server is busy. Please try again later." };
+                        if (secondaryQueue.Count >= maxQueueLength)
+                        {
+                            Console.WriteLine("Secondary queue is full. Rejecting upload.");
+                            return new UploadStatus { Success = false, Message = "Queue is full." };
+                        }
+                        if (!secondaryQueue.TryAdd(chunk.FileName, true))
+                        {
+                            Console.WriteLine($"Failed to add video {chunk.FileName} to the secondary queue.");
+                            return new UploadStatus { Success = false, Message = "Failed to add video to the secondary queue." };
+                        }
                     }
-
-                    // Add to processingVideos to count it as part of the queue
-                    _processingVideos.TryAdd(videoEntry.VideoId, videoEntry);
-                }
-                int ctr = 0;
-                while (await requestStream.MoveNext())
-                {
-                    var chunk = requestStream.Current;
-                    if (ctr == 0) {
-                        Console.WriteLine($"Received first chunk for video {chunk.FileName}");
-                        ctr++;
-                    }
+                    
                     videoEntry.VideoId = chunk.FileName;
-                    videoEntry.Chunks.Add(chunk.Data.ToByteArray());
                     videoEntry.TotalExpectedChunks = chunk.TotalChunks;
-                    videoEntry.ReceivedChunks++;
                 }
-
-                if (!videoEntry.IsComplete)
-                {
-                    Console.WriteLine($"Video {videoEntry.VideoId} is incomplete. Rejecting upload.");
-                    _processingVideos.TryRemove(videoEntry.VideoId, out _);
-                    return new UploadStatus { Success = false, Message = "Video upload incomplete." };
-                }
-
-                lock (_syncLock)
-                {
-                    if (!_videoQueue.TryAdd(videoEntry, TimeSpan.FromMilliseconds(500)))
-                    {
-                        Console.WriteLine($"Failed to add video {videoEntry.VideoId} to the queue.");
-                        _processingVideos.TryRemove(videoEntry.VideoId, out _);
-                        return new UploadStatus { Success = false, Message = "Failed to add video to the queue." };
-                    }
-                    _processingVideos.TryRemove(videoEntry.VideoId, out _);
-                }
-
-                Console.WriteLine($"Video {videoEntry.VideoId} added to the queue.");
-                return new UploadStatus { Success = true, Message = "Upload completed." };
+                videoEntry.Chunks.Add(chunk.Data.ToByteArray());
+                videoEntry.ReceivedChunks++;
             }
-            catch (Exception ex)
+
+            if (!videoEntry.IsComplete)
             {
-                Console.WriteLine($"Error uploading video {videoEntry.VideoId}: {ex.Message}");
-                _processingVideos.TryRemove(videoEntry.VideoId, out _);
-                return new UploadStatus { Success = false, Message = "Error uploading video." };
+                Console.WriteLine($"Video {videoEntry.VideoId} is incomplete. Rejecting upload.");
+                // Remove from secondary queue if not complete
+                secondaryQueue.TryRemove(videoEntry.VideoId, out _);
+                return new UploadStatus { Success = false, Message = "Video upload incomplete." };
             }
+
+            if (!videoQueue.TryAdd(videoEntry, TimeSpan.FromSeconds(1)))
+            {
+                Console.WriteLine($"Failed to add video {videoEntry.VideoId} to the queue.");
+                // Remove from secondary queue if failed to add to the main queue
+                secondaryQueue.Remove(videoEntry.VideoId, out _);
+                return new UploadStatus { Success = false, Message = "Failed to add video to the queue." };
+            }
+
+            Console.WriteLine($"Video {videoEntry.VideoId} added to the queue.");
+            return new UploadStatus { Success = true, Message = "Upload completed." };
         }
 
         private void ProcessQueue() {
-            foreach (var videoEntry in _videoQueue.GetConsumingEnumerable()) {
+            foreach (var videoEntry in videoQueue.GetConsumingEnumerable()) {
                 try {
-                    // Process the video entry
-                    // write current queue length to console and max queue length
-                    Console.WriteLine($"Processing video: {videoEntry.VideoId}, Current queue length: {_videoQueue.Count}, Max queue length: {_videoQueue.BoundedCapacity}");
+                    secondaryQueue.Remove(videoEntry.VideoId, out _);
                     ProcessVideo(videoEntry);
                 }
                 catch (Exception ex) {
@@ -140,9 +124,6 @@ namespace MediaUpload
                 }
 
                 Console.WriteLine($"Video saved: {filePath}");
-
-                // Optional: Generate a preview
-                // PreviewVideo(filePath);
             }
             catch (Exception ex) {
                 Console.WriteLine($"Error processing video {videoEntry.VideoId}: {ex.Message}");
@@ -170,7 +151,7 @@ namespace MediaUpload
 
         public void Shutdown() {
             Console.WriteLine("Shutting down MediaUploadService...");
-            _videoQueue.CompleteAdding(); // Signal that no more items will be added to the queue
+            videoQueue.CompleteAdding(); // Signal that no more items will be added to the queue
 
             foreach (var thread in _workerThreads)
             {
