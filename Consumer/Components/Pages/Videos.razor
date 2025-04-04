@@ -1,0 +1,54 @@
+@page "/videos"
+@rendermode InteractiveServer
+
+<PageTitle>Videos</PageTitle>
+
+<h1>Uploaded Videos</h1>
+
+@if (videoPreviews == null)
+{
+    <p>Loading videos...</p>
+}
+else if (!videoPreviews.Any())
+{
+    <p>No videos available.</p>
+}
+else
+{
+    <ul>
+        @foreach (var video in videoPreviews)
+        {
+            <li>
+                <video width="320" height="240" controls>
+                    <source src="@($"{baseUrl}{video}")" type="video/mp4">
+                    <source src="@($"{baseUrl}{video}")" type="video/ogg">
+                    <source src="@($"{baseUrl}{video}")" type="video/webm">
+                    <source src="@($"{baseUrl}{video}")" type="video/avi">
+                    <source src="@($"{baseUrl}{video}")" type="video/mpeg">
+                    <source src="@($"{baseUrl}{video}")" type="video/x-ms-wmv">
+                    <source src="@($"{baseUrl}{video}")" type="video/x-flv">
+                    <source src="@($"{baseUrl}{video}")" type="video/x-matroska">
+                    Your browser does not support the video tag.
+                </video>
+                <p>@video</p>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private List<string> videoPreviews;
+    private string baseUrl;
+
+    [Inject]
+    private MediaUpload.MediaUploadService MediaUploadService { get; set; }
+
+    [Inject]
+    private NavigationManager NavigationManager { get; set; }
+
+    protected override void OnInitialized()
+    {
+        baseUrl = "/UploadedVideos/Previews/";
+        videoPreviews = MediaUploadService.GetVideoPreviews();
+    }
+}

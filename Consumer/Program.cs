@@ -1,5 +1,6 @@
 using Consumer.Components;
 using MediaUpload;
+using Microsoft.Extensions.FileProviders;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,6 +26,13 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(
+        Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos")),
+    RequestPath = "/UploadedVideos"
+});
+
 app.UseAntiforgery();
 
 app.MapRazorComponents<App>()

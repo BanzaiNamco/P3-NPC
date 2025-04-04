@@ -22,6 +22,7 @@ namespace MediaUpload
         private Thread[] _workerThreads;
         private int _maxConcurrentThreads;
         private readonly object objectLock = new object();
+        private bool configSet = false;
 
         public MediaUploadService() {
             videoQueue = new BlockingCollection<VideoEntry>(maxQueueLength);
@@ -31,8 +32,13 @@ namespace MediaUpload
             }
         }
 
-        public void Configure(int maxThreads, int maxQueue)
+        public bool Configure(int maxThreads, int maxQueue)
         {
+            if (configSet)
+            {
+                Console.WriteLine("Service already configured. Please restart the service to reconfigure.");
+                return false;
+            }
             _maxConcurrentThreads = maxThreads;
             this.maxQueueLength = maxQueue;
 
@@ -47,6 +53,8 @@ namespace MediaUpload
             }
 
             Console.WriteLine($"Configured MediaUploadService with {maxThreads} threads and a queue length of {maxQueue}.");
+            configSet = true;
+            return true;
         }
 
         public override async Task<UploadStatus> UploadMedia(IAsyncStreamReader<VideoChunk> requestStream, ServerCallContext context)
@@ -54,6 +62,12 @@ namespace MediaUpload
             if (requestStream == null)
             {
                 return new UploadStatus { Success = false, Message = "Invalid request stream." };
+            }
+
+            if (!configSet)
+            {
+                Console.WriteLine("Service not configured. Please configure before uploading.");
+                return new UploadStatus { Success = false, Message = "Service not configured." };
             }
 
             VideoEntry videoEntry = new()
@@ -92,7 +106,6 @@ namespace MediaUpload
             if (!videoEntry.IsComplete)
             {
                 Console.WriteLine($"Video {videoEntry.VideoId} is incomplete. Rejecting upload.");
-                // Remove from secondary queue if not complete
                 secondaryQueue.TryRemove(videoEntry.VideoId, out _);
                 return new UploadStatus { Success = false, Message = "Video upload incomplete." };
             }
@@ -100,7 +113,6 @@ namespace MediaUpload
             if (!videoQueue.TryAdd(videoEntry, TimeSpan.FromSeconds(1)))
             {
                 Console.WriteLine($"Failed to add video {videoEntry.VideoId} to the queue.");
-                // Remove from secondary queue if failed to add to the main queue
                 secondaryQueue.Remove(videoEntry.VideoId, out _);
                 return new UploadStatus { Success = false, Message = "Failed to add video to the queue." };
             }
@@ -123,28 +135,77 @@ namespace MediaUpload
 
         private void ProcessVideo(VideoEntry videoEntry) {
             try {
-                // Save the video to disk
+                
                 var filePath = Path.Combine(_uploadFolder, videoEntry.VideoId);
-                using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write);
+                {
+                    using var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write);
 
-                foreach (var chunk in videoEntry.Chunks) {
-                    fileStream.Write(chunk, 0, chunk.Length);
+                    foreach (var chunk in videoEntry.Chunks) {
+                        fileStream.Write(chunk, 0, chunk.Length);
+                    }
+                }
+                
+                Console.WriteLine($"Video saved: {filePath}");
+
+                if (Path.GetExtension(filePath).Equals(".mkv", StringComparison.OrdinalIgnoreCase)) {
+                    Console.WriteLine($"Converting MKV to MP4 for video {videoEntry.VideoId}...");
+                    filePath = ConvertMkvToMp4(filePath);
+                    Console.WriteLine($"Conversion complete for video {videoEntry.VideoId}. New file path: {filePath}");
                 }
 
-                Console.WriteLine($"Video saved: {filePath}");
+                Console.WriteLine($"Generating preview for video {videoEntry.VideoId}...");
+                PreviewVideo(filePath);
+                Console.WriteLine($"Preview generated for video {videoEntry.VideoId}.");
             }
             catch (Exception ex) {
                 Console.WriteLine($"Error processing video {videoEntry.VideoId}: {ex.Message}");
             }
         }
 
-        private void PreviewVideo(string filePath) {
-            var previewPath = Path.Combine(_uploadFolder, "preview_" + Path.GetFileName(filePath));
-            var ffmpegArgs = $"-i \"{filePath}\" -t 10 -c copy \"{previewPath}\"";
+        private static string ConvertMkvToMp4(string inputFilePath) {
+            var outputFilePath = Path.ChangeExtension(inputFilePath, ".mp4");
+            var ffmpegArgs = $"-i \"{inputFilePath}\" -c:v copy -c:a copy \"{outputFilePath}\"";
+            Console.WriteLine($"Converting MKV to MP4 with ffmpeg");
 
             var process = new Process {
+            StartInfo = new ProcessStartInfo {
+                FileName = Path.Combine(Directory.GetCurrentDirectory(), "FFmpeg", "bin", "ffmpeg.exe"),
+                Arguments = ffmpegArgs,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            }
+            };
+
+            process.OutputDataReceived += (sender, args) => {};
+            process.ErrorDataReceived += (sender, args) => {};
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0) {
+            throw new Exception($"FFmpeg conversion failed for {inputFilePath}");
+            }
+
+            File.Delete(inputFilePath);
+            return outputFilePath;
+        }
+
+        private void PreviewVideo(string filePath) {
+            var previewFolder = Path.Combine(_uploadFolder, "Previews");
+            if (!Directory.Exists(previewFolder))
+            {
+                Directory.CreateDirectory(previewFolder);
+            }
+            var previewPath = Path.Combine(previewFolder, "preview_" + Path.GetFileName(filePath));
+            var ffmpegArgs = $"-i \"{filePath}\" -t 10 -c copy \"{previewPath}\"";
+            Console.WriteLine($"Generating preview with ffmpeg");
+            var process = new Process {
                 StartInfo = new ProcessStartInfo {
-                    FileName = "ffmpeg",
+                    FileName = Path.Combine(Directory.GetCurrentDirectory(), "FFmpeg", "bin", "ffmpeg.exe"),
                     Arguments = ffmpegArgs,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -153,18 +214,34 @@ namespace MediaUpload
                 }
             };
 
+            process.OutputDataReceived += (sender, args) => {};
+            process.ErrorDataReceived += (sender, args) => {};
+
             process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
             process.WaitForExit();
         }
+        public List<string> GetVideoPreviews()
+        {
+            var previewFolder = Path.Combine(_uploadFolder, "Previews");
+            if (!Directory.Exists(previewFolder))
+            {
+            return new List<string>();
+            }
 
+            return [.. Directory.GetFiles(previewFolder)
+                    .Where(file => !Path.GetExtension(file).Equals(".mkv", StringComparison.OrdinalIgnoreCase))
+                    .Select(Path.GetFileName)];
+        }
 
         public void Shutdown() {
             Console.WriteLine("Shutting down MediaUploadService...");
-            videoQueue.CompleteAdding(); // Signal that no more items will be added to the queue
+            videoQueue.CompleteAdding();
 
             foreach (var thread in _workerThreads)
             {
-                thread.Join(); // Wait for all worker threads to finish processing
+                thread.Join();
             }
 
             Console.WriteLine("MediaUploadService shutdown complete.");
