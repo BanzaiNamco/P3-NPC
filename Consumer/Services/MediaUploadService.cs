@@ -18,27 +18,35 @@ namespace MediaUpload
         private readonly string _uploadFolder = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos");
         private readonly BlockingCollection<VideoEntry> videoQueue;
         private readonly ConcurrentDictionary<string, bool> secondaryQueue = new();
-        private readonly int maxQueueLength = 10;
-        private readonly Thread[] _workerThreads;
-        private readonly int _maxConcurrentThreads;
+        private int maxQueueLength = 10;
+        private Thread[] _workerThreads;
+        private int _maxConcurrentThreads;
         private readonly object objectLock = new object();
 
-        public MediaUploadService(int maxConcurrentThreads, int maxQueueLength) {
-            _maxConcurrentThreads = maxConcurrentThreads;
+        public MediaUploadService() {
             videoQueue = new BlockingCollection<VideoEntry>(maxQueueLength);
-            this.maxQueueLength = maxQueueLength;
 
             if (!Directory.Exists(_uploadFolder)) {
                 Directory.CreateDirectory(_uploadFolder);
             }
+        }
+
+        public void Configure(int maxThreads, int maxQueue)
+        {
+            _maxConcurrentThreads = maxThreads;
+            this.maxQueueLength = maxQueue;
 
             _workerThreads = new Thread[_maxConcurrentThreads];
-            for (int i = 0; i < _maxConcurrentThreads; i++) {
-                _workerThreads[i] = new Thread(ProcessQueue) {
+            for (int i = 0; i < _maxConcurrentThreads; i++)
+            {
+                _workerThreads[i] = new Thread(ProcessQueue)
+                {
                     IsBackground = true
                 };
                 _workerThreads[i].Start();
             }
+
+            Console.WriteLine($"Configured MediaUploadService with {maxThreads} threads and a queue length of {maxQueue}.");
         }
 
         public override async Task<UploadStatus> UploadMedia(IAsyncStreamReader<VideoChunk> requestStream, ServerCallContext context)
@@ -148,6 +156,7 @@ namespace MediaUpload
             process.Start();
             process.WaitForExit();
         }
+
 
         public void Shutdown() {
             Console.WriteLine("Shutting down MediaUploadService...");
