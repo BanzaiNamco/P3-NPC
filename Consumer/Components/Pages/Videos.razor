@@ -3,7 +3,7 @@
 
 <PageTitle>Videos</PageTitle>
 
-<h1>Uploaded Videos</h1>
+<h1>Gallery</h1>
 
 @if (videoPreviews == null)
 {
@@ -15,11 +15,12 @@ else if (!videoPreviews.Any())
 }
 else
 {
-    <ul>
+    <div class="gallery">
         @foreach (var video in videoPreviews)
         {
-            <li>
-                <video width="320" height="240" controls>
+            <div class="gallery-item">
+                <div class="video-entry">
+                    <video class="video-video" controls>
                     <source src="@($"{baseUrl}{video}")" type="video/mp4">
                     <source src="@($"{baseUrl}{video}")" type="video/ogg">
                     <source src="@($"{baseUrl}{video}")" type="video/webm">
@@ -30,10 +31,11 @@ else
                     <source src="@($"{baseUrl}{video}")" type="video/x-matroska">
                     Your browser does not support the video tag.
                 </video>
-                <p>@video</p>
-            </li>
+                    <div class="video-title">@video</div>
+				</div>
+            </div>
         }
-    </ul>
+    </div>
 }
 
 @code {
