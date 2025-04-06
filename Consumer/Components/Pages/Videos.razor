@@ -1,5 +1,7 @@
 @page "/videos"
 @rendermode InteractiveServer
+@using System.Threading
+@implements IDisposable
 
 <PageTitle>Videos</PageTitle>
 
@@ -21,16 +23,16 @@ else
             <div class="gallery-item">
                 <div class="video-entry">
                     <video class="video-video" controls>
-                    <source src="@($"{baseUrl}{video}")" type="video/mp4">
-                    <source src="@($"{baseUrl}{video}")" type="video/ogg">
-                    <source src="@($"{baseUrl}{video}")" type="video/webm">
-                    <source src="@($"{baseUrl}{video}")" type="video/avi">
-                    <source src="@($"{baseUrl}{video}")" type="video/mpeg">
-                    <source src="@($"{baseUrl}{video}")" type="video/x-ms-wmv">
-                    <source src="@($"{baseUrl}{video}")" type="video/x-flv">
-                    <source src="@($"{baseUrl}{video}")" type="video/x-matroska">
-                    Your browser does not support the video tag.
-                </video>
+                        <source src="@($"{baseUrl}{video}")" type="video/mp4">
+                        <source src="@($"{baseUrl}{video}")" type="video/ogg">
+                        <source src="@($"{baseUrl}{video}")" type="video/webm">
+                        <source src="@($"{baseUrl}{video}")" type="video/avi">
+                        <source src="@($"{baseUrl}{video}")" type="video/mpeg">
+                        <source src="@($"{baseUrl}{video}")" type="video/x-ms-wmv">
+                        <source src="@($"{baseUrl}{video}")" type="video/x-flv">
+                        <source src="@($"{baseUrl}{video}")" type="video/x-matroska">
+                        Your browser does not support the video tag.
+                    </video>
                     <div class="video-title">@video</div>
 				</div>
             </div>
@@ -41,6 +43,7 @@ else
 @code {
     private List<string> videoPreviews;
     private string baseUrl;
+	private Timer _refreshTimer;
 
     [Inject]
     private MediaUpload.MediaUploadService MediaUploadService { get; set; }
@@ -52,5 +55,19 @@ else
     {
         baseUrl = "/UploadedVideos/Previews/";
         videoPreviews = MediaUploadService.GetVideoPreviews();
+        _refreshTimer = new Timer(LoadVideos, null, TimeSpan.FromMilliseconds(1000), TimeSpan.FromMilliseconds(1000));
+    }
+
+    private void LoadVideos(object state) {
+        var videos = MediaUploadService.GetVideoPreviews();
+
+        if (!Enumerable.SequenceEqual(videos, videoPreviews)) {
+            videoPreviews = videos;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose() {
+        _refreshTimer?.Dispose();
     }
 }
