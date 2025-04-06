@@ -1,36 +1,44 @@
 ﻿@page "/"
 @rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
 
 <PageTitle>Home</PageTitle>
 
 <h1>Configure Media Upload Service</h1>
 
-<div>
-    <label>Max Concurrent Threads:</label>
-    <input type="number" @bind="MaxThreads" min="1" />
-</div>
-<div>
-    <label>Max Queue Length:</label>
-    <input type="number" @bind="MaxQueue" min="1" />
-</div>
-<button @onclick="SubmitConfiguration">Submit</button>
+<EditForm Model="@config" OnValidSubmit="@SubmitConfiguration">
+    <DataAnnotationsValidator />
+
+    <div>
+        <label>Max Concurrent Threads:</label>
+        <InputNumber @bind-Value="config.MaxThreads" class="form-control" />
+        <ValidationMessage For="@(() => config.MaxThreads)" />
+    </div>
+
+    <div>
+        <label>Max Queue Length:</label>
+        <InputNumber @bind-Value="config.MaxQueue" class="form-control" />
+        <ValidationMessage For="@(() => config.MaxQueue)" />
+    </div>
+
+    <button type="submit">Submit</button>
+</EditForm>
 
 @code {
 
-    private int MaxThreads { get; set; } = 1;
-    private int MaxQueue { get; set; } = 1;
     private bool configSetSuccess = false;
+    private ConfigModel config = new ConfigModel();
 
-	protected override void OnInitialized() {
-		if (mediaUploadService.isConfigSet()) {
+    protected override void OnInitialized() {
+        if (mediaUploadService.isConfigSet()) {
             NavigationManager.NavigateTo("/videos");
-		}
-	}
+        }
+    }
 
     private void SubmitConfiguration()
     {
-        Console.WriteLine($"Submitting: MaxThreads={MaxThreads}, MaxQueue={MaxQueue}");
-        configSetSuccess = mediaUploadService.Configure(MaxThreads, MaxQueue);
+        Console.WriteLine($"Submitting: MaxThreads={config.MaxThreads}, MaxQueue={config.MaxQueue}");
+        configSetSuccess = mediaUploadService.Configure(config.MaxThreads, config.MaxQueue);
         if (configSetSuccess) {
             Console.WriteLine("Configuration submitted successfully.");
             NavigationManager.NavigateTo("/videos");
@@ -38,8 +46,8 @@
             Console.WriteLine("Configuration submission failed. Perhaps the server is already configured.");
             // show a message to the user
             JSRuntime?.InvokeVoidAsync("alert", "Configuration submission failed. Perhaps the server is already configured.");
-           
-            
+
+
         }
     }
     [Inject]
@@ -48,6 +56,16 @@
     private MediaUpload.MediaUploadService mediaUploadService { get; set; }
     [Inject]
     private NavigationManager NavigationManager { get; set; }
+
+    public class ConfigModel {
+        [Required(ErrorMessage = "Max threads is required")]
+        [Range(1, 10, ErrorMessage = "Max Threads must be from 1 to 10")]
+        public int MaxThreads { get; set; }
+
+        [Required(ErrorMessage = "Max queue is required")]
+        [Range(1, 1000, ErrorMessage = "Max Queue must be 1 to 1000")]
+        public int MaxQueue { get; set; }
+    }
 }
 
 
