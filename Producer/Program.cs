@@ -103,9 +103,10 @@ public class Program
     {
         Console.Write("Enter the number of threads to use for uploading: ");
         int threadCount;
-        while (!int.TryParse(Console.ReadLine(), out threadCount) || threadCount < 1)
+        while (!int.TryParse(Console.ReadLine(), out threadCount) || threadCount < 1 || threadCount > 20)
         {
-            Console.WriteLine("Invalid input. Please enter a positive integer.");
+            Console.WriteLine("Invalid input. Please enter an integer from 1 to 20.\n");
+            Console.Write("Enter the number of threads to use for uploading: ");
         }
 
         var directory = "../../../Videos";
