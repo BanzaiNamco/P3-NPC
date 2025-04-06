@@ -16,17 +16,20 @@ else if (!videoPreviews.Any())
 else
 {
     <div class="gallery">
-        @foreach (var video in videoPreviews)
-        {
-            var filename = $"{baseUrl}{video}?v={Guid.NewGuid()}";
+        @foreach (var video in videoPreviews) {
+            var url = baseUrl + video;
             <div class="gallery-item">
                 <div class="video-entry">
-                    <video class="video-video" controls>
-                        <source src="@(filename)" type="video/mp4" preload="metadata">
-                        Your browser does not support the video tag.
-                    </video>
+                    @if (selectedVideo == video) {
+                        <video preload="metadata" controls autoplay class="video-video" muted onloadedmetadata="this.volume=0.1">
+                            <source src="@url" type="video/mp4">
+                        </video>
+                    }
+                    else {
+                        <img src="@url.Replace(".mp4", ".png")" @onmouseover="() => PlayVideo(video)" @onmouseleave="() => CloseVideo()" class="video-thumbnail" />
+                    }
                     <div class="video-title">@video</div>
-				</div>
+                </div>
             </div>
         }
     </div>
@@ -35,6 +38,7 @@ else
 @code {
     private List<string> videoPreviews;
     private string baseUrl;
+    private string? selectedVideo;
 
     [Inject]
     private MediaUpload.MediaUploadService MediaUploadService { get; set; }
@@ -44,17 +48,27 @@ else
 
     protected override void OnInitialized()
     {
-		if (!MediaUploadService.isConfigSet()) {
-			NavigationManager.NavigateTo("/");
-		}
+        if (!MediaUploadService.isConfigSet()) {
+            NavigationManager.NavigateTo("/");
+        }
         baseUrl = "/UploadedVideos/Previews/";
         videoPreviews = MediaUploadService.GetVideoPreviews();
         MediaUploadService.OnVideosChanged += LoadVideos;
     }
 
+    void PlayVideo(string video) {
+        selectedVideo = video;
+	    InvokeAsync(StateHasChanged);
+	}
+
+    void CloseVideo() {
+		selectedVideo = null;
+	    InvokeAsync(StateHasChanged);
+    }
+
     private async void LoadVideos() {
-		videoPreviews = new List<string>();
-        await InvokeAsync(StateHasChanged);
+		//videoPreviews = new List<string>();
+        //await InvokeAsync(StateHasChanged);
         videoPreviews = MediaUploadService.GetVideoPreviews();
         await InvokeAsync(StateHasChanged);
     }

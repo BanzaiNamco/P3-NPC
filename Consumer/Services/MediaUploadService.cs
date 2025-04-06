@@ -1,6 +1,7 @@
 using Grpc.Core;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -25,7 +26,7 @@ namespace MediaUpload
         private readonly object objectLock = new object();
         private bool configSet = false;
         public event Action OnVideosChanged;
-
+        private static List<Process> ffmpegProcesses = new List<Process>();
         public void NotifyVideosChanged() {
             OnVideosChanged?.Invoke();
         }
@@ -172,7 +173,7 @@ namespace MediaUpload
 
             process.OutputDataReceived += (sender, args) => { };
             process.ErrorDataReceived += (sender, args) => { };
-
+            ffmpegProcesses.Add(process);
             process.Start();
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
@@ -186,17 +187,61 @@ namespace MediaUpload
             return outputFilePath;
         }
 
+        private string GetUniqueFileName(string fileName, string path) {
+            string fullPath = Path.Combine(path, fileName);
+
+            if (!File.Exists(fullPath)) {
+                return fullPath;
+            }
+
+            string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
+            string extension = Path.GetExtension(fileName);
+            int count = 1;
+
+            string newFileName;
+            string newFullPath;
+
+            do {
+                newFileName = $"{fileNameWithoutExtension} ({count}){extension}";
+                newFullPath = Path.Combine(path, newFileName);
+                count++;
+            } while (File.Exists(newFullPath));
+
+            return newFullPath;
+        }
+
         private async Task PreviewVideo(string filePath) {
             var previewFolder = Path.Combine(_uploadFolder, "Previews");
             if (!Directory.Exists(previewFolder)) {
                 Directory.CreateDirectory(previewFolder);
             }
-            var previewPath = Path.Combine(previewFolder, "preview_" + Path.GetFileName(filePath));
-            var ffmpegArgs = $"-i \"{filePath}\" -t 10 -c copy \"{previewPath}\"";
-            Console.WriteLine($"Generating preview with ffmpeg");
-            var process = new Process {
+            var fileName = Path.GetFileNameWithoutExtension(filePath);
+            var ffmpegPath = Path.Combine(Directory.GetCurrentDirectory(), "FFmpeg", "bin", "ffmpeg.exe");
+            var previewVideo = Path.Combine(previewFolder, GetUniqueFileName($"{fileName}.mp4", previewFolder));
+            var previewThumbnail = Path.Combine(previewFolder, GetUniqueFileName($"{fileName}.png", previewFolder));
+
+            Console.WriteLine($"Generating image preview with ffmpeg");
+            var ffmpegArgs = $"-i \"{filePath}\" -ss 00:00:00.000 -vframes 1 -q:v 2 \"{previewThumbnail}\"";
+            var processThumbnail = new Process {
                 StartInfo = new ProcessStartInfo {
-                    FileName = Path.Combine(Directory.GetCurrentDirectory(), "FFmpeg", "bin", "ffmpeg.exe"),
+                    FileName = ffmpegPath,
+                    Arguments = ffmpegArgs,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+            ffmpegProcesses.Add(processThumbnail);
+            processThumbnail.Start();
+            processThumbnail.BeginOutputReadLine();
+            processThumbnail.BeginErrorReadLine();
+            processThumbnail.WaitForExit();
+
+            ffmpegArgs = $"-i \"{filePath}\" -t 10 -c copy \"{previewVideo}\"";
+            var processVideo = new Process {
+                StartInfo = new ProcessStartInfo {
+                    FileName = ffmpegPath,
                     Arguments = ffmpegArgs,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -205,13 +250,15 @@ namespace MediaUpload
                 }
             };
 
-            process.OutputDataReceived += (sender, args) => { };
-            process.ErrorDataReceived += (sender, args) => { };
+            processVideo.OutputDataReceived += (sender, args) => { };
+            processVideo.ErrorDataReceived += (sender, args) => { };
+            ffmpegProcesses.Add(processVideo);
+            processVideo.Start();
+            processVideo.BeginOutputReadLine();
+            processVideo.BeginErrorReadLine();
+            processVideo.WaitForExit();
 
-            process.Start();
-            process.BeginOutputReadLine();
-            process.BeginErrorReadLine();
-            process.WaitForExit();
+
             return;
         }
         public List<string> GetVideoPreviews() {
@@ -221,8 +268,7 @@ namespace MediaUpload
             }
 
             return [.. Directory.GetFiles(previewFolder)
-                    .Where(file => !Path.GetExtension(file).Equals(".mkv", StringComparison.OrdinalIgnoreCase))
-                    .Select(Path.GetFileName)];
+                    .Where(file => Path.GetExtension(file).Equals(".mp4", StringComparison.OrdinalIgnoreCase)).Select(Path.GetFileName)];
         }
 
         public bool isConfigSet() { return configSet; }
@@ -235,7 +281,11 @@ namespace MediaUpload
             {
                 thread.Join();
             }
-
+            foreach (var process in ffmpegProcesses) {
+                if (!process.HasExited) {
+                    process.Kill();
+                }
+            }
             Console.WriteLine("MediaUploadService shutdown complete.");
         }
     }
