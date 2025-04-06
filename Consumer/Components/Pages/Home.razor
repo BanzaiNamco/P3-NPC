@@ -21,6 +21,12 @@
     private int MaxQueue { get; set; } = 1;
     private bool configSetSuccess = false;
 
+	protected override void OnInitialized() {
+		if (mediaUploadService.isConfigSet()) {
+            NavigationManager.NavigateTo("/videos");
+		}
+	}
+
     private void SubmitConfiguration()
     {
         Console.WriteLine($"Submitting: MaxThreads={MaxThreads}, MaxQueue={MaxQueue}");
