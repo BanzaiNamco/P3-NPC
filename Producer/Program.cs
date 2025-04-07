@@ -13,19 +13,36 @@ public class VideoUploader
     private readonly MediaUpload.MediaUpload.MediaUploadClient _client;
     private readonly string _directory;
     private readonly int _threadCount;
+    private readonly List<string> _directories;
 
-    public VideoUploader(string serverAddress, string directory, int threadCount)
+    public VideoUploader(string serverAddress, string directory, int threadCount, List<string> directories)
     {
         var channel = GrpcChannel.ForAddress(serverAddress);
         _client = new MediaUpload.MediaUpload.MediaUploadClient(channel);
         _directory = directory;
         _threadCount = threadCount;
+        _directories = directories;
     }
 
-    public async Task StartUploadAsync()
+    public async Task Start() {
+        var tasks = new List<Task>();
+        var directoryQueue = new ConcurrentQueue<string>(_directories);
+        for (int i = 0; i < _threadCount; i++) {
+            tasks.Add(Task.Run(async () => {
+                while (directoryQueue.TryDequeue(out var directory)) {
+                    Console.WriteLine($"Thread {Task.CurrentId} processing directory: {directory}");
+                    await StartUploadAsync(directory);
+                }
+            }));
+        }
+        await Task.WhenAll(tasks);
+        Console.WriteLine("All threads finished.");
+    }
+
+    public async Task StartUploadAsync(string directory)
     {
         // Get all video files in the directory
-        var videoFiles = Directory.GetFiles(_directory, "*.*", SearchOption.AllDirectories);
+        var videoFiles = Directory.GetFiles(directory, "*.*", SearchOption.AllDirectories);
 
         // Use a thread-safe queue to manage video files
         var videoQueue = new ConcurrentQueue<string>(videoFiles);
@@ -99,20 +116,39 @@ public class VideoUploader
 
 public class Program
 {
+    private static List<string> directories = new List<string>();
+    private static void Initialize() {
+        var parentDirectory = "../../../Videos";
+        var maxDirectories = 8;
+        if (!Directory.Exists(parentDirectory)) {
+            Directory.CreateDirectory(parentDirectory);
+        }
+
+        for (int i = 1; i <= maxDirectories; i++) {
+            directories.Add($"{parentDirectory}/Thread {i}/");
+        }
+
+        foreach (var directory in directories) {
+            if (!Directory.Exists(directory)) {
+                Directory.CreateDirectory(directory);
+            }
+        }
+    }
     public static async Task Main(string[] args)
     {
         Console.Write("Enter the number of threads to use for uploading: ");
         int threadCount;
-        while (!int.TryParse(Console.ReadLine(), out threadCount) || threadCount < 1 || threadCount > 20)
+        Initialize();
+        while (!int.TryParse(Console.ReadLine(), out threadCount) || threadCount < 1 || threadCount > 8)
         {
-            Console.WriteLine("Invalid input. Please enter an integer from 1 to 20.\n");
+            Console.WriteLine("Invalid input. Please enter an integer from 1 to 8.\n");
             Console.Write("Enter the number of threads to use for uploading: ");
         }
 
         var directory = "../../../Videos";
         var serverAddress = "https://localhost:7280";
 
-        var uploader = new VideoUploader(serverAddress, directory, threadCount);
-        await uploader.StartUploadAsync();
+        var uploader = new VideoUploader(serverAddress, directory, threadCount, directories);
+        await uploader.Start();
     }
 }

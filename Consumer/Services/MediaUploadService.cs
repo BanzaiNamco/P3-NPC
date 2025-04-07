@@ -156,9 +156,11 @@ namespace MediaUpload
         }
 
         private static string ConvertMkvToMp4(string inputFilePath) {
-            var outputFilePath = Path.ChangeExtension(inputFilePath, ".mp4");
+            var fileName = GetUniqueFileName(Path.GetFileName(inputFilePath), Path.GetDirectoryName(inputFilePath));
+            var outputFilePath = $"{Path.GetDirectoryName(inputFilePath)}\\{Path.GetFileNameWithoutExtension(fileName)}.mp4";
             var ffmpegArgs = $"-i \"{inputFilePath}\" -c:v copy -c:a copy \"{outputFilePath}\"";
             Console.WriteLine($"Converting MKV to MP4 with ffmpeg");
+            try {
 
             var process = new Process {
                 StartInfo = new ProcessStartInfo {
@@ -179,15 +181,19 @@ namespace MediaUpload
             process.BeginErrorReadLine();
             process.WaitForExit();
 
-            if (process.ExitCode != 0) {
-                throw new Exception($"FFmpeg conversion failed for {inputFilePath}");
+            }  catch (Exception e) {
+                Console.WriteLine(e);
             }
+
+            //if (process.ExitCode != 0) {
+            //    throw new Exception($"FFmpeg conversion failed for {inputFilePath}");
+            //}
 
             File.Delete(inputFilePath);
             return outputFilePath;
         }
 
-        private string GetUniqueFileName(string fileName, string path) {
+        private static string GetUniqueFileName(string fileName, string path) {
             string fullPath = Path.Combine(path, fileName);
 
             if (!File.Exists(fullPath)) {
@@ -232,12 +238,16 @@ namespace MediaUpload
                     CreateNoWindow = true
                 }
             };
+            processThumbnail.OutputDataReceived += (sender, args) => { };
+            processThumbnail.ErrorDataReceived += (sender, args) => { };
+
             ffmpegProcesses.Add(processThumbnail);
             processThumbnail.Start();
             processThumbnail.BeginOutputReadLine();
             processThumbnail.BeginErrorReadLine();
             processThumbnail.WaitForExit();
 
+            Console.WriteLine($"Generating image with ffmpeg");
             ffmpegArgs = $"-i \"{filePath}\" -t 10 -c copy \"{previewVideo}\"";
             var processVideo = new Process {
                 StartInfo = new ProcessStartInfo {
@@ -289,6 +299,4 @@ namespace MediaUpload
             Console.WriteLine("MediaUploadService shutdown complete.");
         }
     }
-
-    
 }
