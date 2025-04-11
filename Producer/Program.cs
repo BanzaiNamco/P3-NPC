@@ -29,45 +29,32 @@ public class VideoUploader
         var directoryQueue = new ConcurrentQueue<string>(_directories);
         for (int i = 0; i < _threadCount; i++) {
             tasks.Add(Task.Run(async () => {
+                int? id = Task.CurrentId;
                 while (directoryQueue.TryDequeue(out var directory)) {
-                    Console.WriteLine($"Thread {Task.CurrentId} processing directory: {directory}");
-                    await StartUploadAsync(directory);
+                    Console.WriteLine($"[Thread {id}]:\tProcessing directory: {directory}");
+                    await StartUploadAsync(id, directory);
                 }
             }));
         }
         await Task.WhenAll(tasks);
-        Console.WriteLine("All threads finished.");
+        Console.WriteLine("[Thread 0]:\tAll threads finished.");
     }
 
-    public async Task StartUploadAsync(string directory)
+    public async Task StartUploadAsync(int? threadId, string directory)
     {
-        // Get all video files in the directory
         var videoFiles = Directory.GetFiles(directory, "*.*", SearchOption.AllDirectories);
-
-        // Use a thread-safe queue to manage video files
         var videoQueue = new ConcurrentQueue<string>(videoFiles);
 
-        // Create and start threads
-        var tasks = new List<Task>();
-        for (int i = 0; i < _threadCount; i++)
+        while (videoQueue.TryDequeue(out var filePath))
         {
-            tasks.Add(Task.Run(async () =>
-            {
-                while (videoQueue.TryDequeue(out var filePath))
-                {
-                    Console.WriteLine($"Thread {Task.CurrentId} uploading: {filePath}");
-                    var success = await UploadVideoWithRetryAsync(filePath);
-                }
-            }));
+            Console.WriteLine($"[Thread {threadId}]:\tUploading \"{filePath}\"");
+            var success = await UploadVideoWithRetryAsync(threadId, filePath);
         }
 
-        // Wait for all threads to complete
-        await Task.WhenAll(tasks);
-
-        Console.WriteLine("All uploads completed.");
+        Console.WriteLine($"[Thread {threadId}]:\tCompleted all uploads in \"{directory}\".");
     }
 
-    private async Task<bool> UploadVideoWithRetryAsync(string filePath)
+    private async Task<bool> UploadVideoWithRetryAsync(int? threadId, string filePath)
     {
         const int maxRetries = 1; // Maximum number of retries
         for (int attempt = 1; attempt <= maxRetries; attempt++)
@@ -96,17 +83,17 @@ public class VideoUploader
 
                 if (response.Success)
                 {
-                    Console.WriteLine($"Upload successful for {filePath}: {response.Message}");
+                    Console.WriteLine($"[Thread {threadId}]:\tUpload successful for {filePath}: {response.Message}");
                     return true; // Upload succeeded
                 }
                 else
                 {
-                    Console.WriteLine($"Server rejected {filePath}: {response.Message}");
+                    Console.WriteLine($"[Thread {threadId}]:\tServer rejected {filePath}: {response.Message}");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error uploading {filePath} {ex.Message}");
+                Console.WriteLine($"[Thread {threadId}]:\tError uploading {filePath} {ex.Message}");
             }
         }
 
