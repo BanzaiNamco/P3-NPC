@@ -298,10 +298,6 @@ namespace MediaUpload
             }
         }
 
-        private static string GetUniqueFileName(string filePath) {
-            if (!File.Exists(filePath)) {
-                return filePath;
-            }
             
         private async Task CompressVideo(string filePath) {
             await compressionSemaphore.WaitAsync();
