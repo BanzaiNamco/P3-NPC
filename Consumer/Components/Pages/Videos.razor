@@ -16,6 +16,18 @@ else if (!videoPreviews.Any())
 else
 {
     <div class="gallery">
+        @foreach (var video in uploadingVideos) {
+            var url = baseUrl + video.Key;
+            <div class="gallery-item">
+                <div class="video-entry">
+                    <div class="loading-container">
+                        <div class="loading-icon"></div>
+                        <div class="upload-progress">@($"{video.Value:F0}%")</div>
+                    </div>
+                    <div class="video-title">@video.Key</div>
+                </div>
+            </div>
+        }
         @foreach (var video in videoPreviews) {
             var url = baseUrl + video.Key;
             <div class="gallery-item">
@@ -37,8 +49,13 @@ else
 
 @code {
     private Dictionary<string, string> videoPreviews;
+    private Dictionary<string, float> uploadingVideos;
     private string baseUrl;
     private string? selectedVideo;
+    private bool canUpdate = true;
+    private readonly SemaphoreSlim updateSemaphore = new(1);
+    private DateTime lastUpdateTime = DateTime.MinValue;
+    private readonly TimeSpan minUpdateInterval = TimeSpan.FromMilliseconds(300); 
 
     [Inject]
     private MediaUpload.MediaUploadService MediaUploadService { get; set; }
@@ -53,23 +70,41 @@ else
         }
         baseUrl = "/UploadedVideos/Previews/";
         videoPreviews = MediaUploadService.GetVideoPreviews();
+        uploadingVideos = MediaUploadService.GetUploadingVideos();
         MediaUploadService.OnVideosChanged += LoadVideos;
+        Task.Run(() => AutoRefreshVideos());
+    }
+
+    private async Task AutoRefreshVideos() {
+        while (true) {
+            LoadVideos();
+            await Task.Delay(600);
+        }
     }
 
     void PlayVideo(string video) {
         selectedVideo = video;
-	    InvokeAsync(StateHasChanged);
-	}
+        InvokeAsync(StateHasChanged);
+    }
 
     void CloseVideo() {
-		selectedVideo = null;
-	    InvokeAsync(StateHasChanged);
+        selectedVideo = null;
+        InvokeAsync(StateHasChanged);
     }
 
     private async void LoadVideos() {
-		//videoPreviews = new List<string>();
-        //await InvokeAsync(StateHasChanged);
-        videoPreviews = MediaUploadService.GetVideoPreviews();
-        await InvokeAsync(StateHasChanged);
+        await updateSemaphore.WaitAsync();
+        try {
+            var now = DateTime.Now;
+            if (now - lastUpdateTime < minUpdateInterval) { return;  }
+            if (!canUpdate) { return; }
+            videoPreviews = MediaUploadService.GetVideoPreviews();
+            uploadingVideos = MediaUploadService.GetUploadingVideos();
+            await InvokeAsync(StateHasChanged);
+        }
+        finally {
+            updateSemaphore.Release();
+        }
+
     }
 }
