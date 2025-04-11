@@ -147,7 +147,7 @@ namespace MediaUpload
         private readonly string _uploadFolder = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos");
         private readonly string _tempFolder = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos\\Temp");
         private readonly string _previewFolder = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos\\Previews");
-        private readonly BlockingCollection<VideoEntry> videoQueue;
+        private BlockingCollection<VideoEntry> videoQueue;
         private readonly ConcurrentDictionary<string, bool> secondaryQueue = new();
         private int maxQueueLength = 10;
         private Thread[] _workerThreads;
@@ -174,7 +174,6 @@ namespace MediaUpload
         }
 
         public MediaUploadService() {
-            videoQueue = new BlockingCollection<VideoEntry>(maxQueueLength);
             InitializeFiles();
             FileTable.Instance.LoadTable();
         }
@@ -186,7 +185,7 @@ namespace MediaUpload
             }
             _maxConcurrentThreads = maxThreads;
             this.maxQueueLength = maxQueue;
-
+            videoQueue = new BlockingCollection<VideoEntry>(maxQueueLength);
             _workerThreads = new Thread[_maxConcurrentThreads];
             for (int i = 0; i < _maxConcurrentThreads; i++) {
                 _workerThreads[i] = new Thread(ProcessQueue) {
@@ -222,8 +221,8 @@ namespace MediaUpload
                 // if it is the first chunk, initialize the video name
                 if (videoEntry.VideoId == string.Empty) {
                     lock (objectLock) {
-                        if (secondaryQueue.Count >= maxQueueLength) {
-                            Console.WriteLine("Secondary queue is full. Rejecting upload.");
+                        if (secondaryQueue.Count + videoQueue.Count >= maxQueueLength) {
+                            Console.WriteLine("Queue is full. Rejecting upload.");
                             return new UploadStatus { Success = false, Message = "Queue is full." };
                         }
                         if (!secondaryQueue.TryAdd(chunk.FileName, true)) {
