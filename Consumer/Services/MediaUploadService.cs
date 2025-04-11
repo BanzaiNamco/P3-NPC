@@ -165,7 +165,7 @@ namespace MediaUpload
         public void NotifyUploadsChanged() {
             OnVideosChanged?.Invoke();
         }
-
+        
         private void InitializeFiles() {
             if (!Directory.Exists(_uploadFolder)) {
                 Directory.CreateDirectory(_uploadFolder);
@@ -205,6 +205,18 @@ namespace MediaUpload
             return true;
         }
 
+        public override async Task<UploadStatus> CheckDuplicate(HashRequest request, ServerCallContext context) {
+            if (request == null) {
+                return new UploadStatus { Success = false, Message = "Invalid request hash." };
+            }
+
+           if (FileTable.Instance.Get(request.Hash) != null) {
+                Console.WriteLine($"Video {request.Hash} already exists.");
+                return new UploadStatus { Success = false, Message = $"Duplicate file with hash {request.Hash} found, rejecting upload" };
+            }
+            return new UploadStatus { Success = true, Message = "File is not a duplicate" };
+        }
+
         public override async Task<UploadStatus> UploadMedia(IAsyncStreamReader<VideoChunk> requestStream, ServerCallContext context) {
             InitializeFiles();
             if (requestStream == null) {
@@ -235,7 +247,7 @@ namespace MediaUpload
                             return new UploadStatus { Success = false, Message = "Failed to add video to the secondary queue." };
                         }
                     }
-                    videoEntry.VideoId = Guid.NewGuid().ToString();
+                    videoEntry.VideoId = chunk.Hash;
                     FileTable.Instance.Add(videoEntry.VideoId, chunk.FileName);
                     videos.TryAdd(videoEntry.VideoId, videoEntry);
                     videoEntry.TotalExpectedChunks = chunk.TotalChunks;
@@ -290,7 +302,7 @@ namespace MediaUpload
                 Console.WriteLine($"Generating preview for video {videoEntry.VideoId}...");
                 GeneratePreviews(filePath);
                 Console.WriteLine($"Preview generated for video {videoEntry.VideoId}.");
-                await CompressVideo(filePath);  
+                await CompressVideo(filePath);
                 File.Delete(filePath);
             }
             catch (Exception ex) {
@@ -298,7 +310,7 @@ namespace MediaUpload
             }
         }
 
-            
+
         private async Task CompressVideo(string filePath) {
             await compressionSemaphore.WaitAsync();
             try {
