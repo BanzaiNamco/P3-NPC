@@ -155,6 +155,7 @@ namespace MediaUpload
         private readonly object objectLock = new object();
         private bool configSet = false;
         public event Action OnVideosChanged;
+        public event Action OnUploadsChanged;
         private static List<Process> ffmpegProcesses = new List<Process>();
         private readonly SemaphoreSlim compressionSemaphore = new (3);
         public void NotifyVideosChanged() {
@@ -238,6 +239,7 @@ namespace MediaUpload
                 }
                 videoEntry.Chunks.Add(chunk.Data.ToByteArray());
                 videoEntry.ReceivedChunks++;
+                NotifyUploadsChanged();
             }
 
             if (!videoEntry.IsComplete) {
@@ -284,7 +286,6 @@ namespace MediaUpload
                 Console.WriteLine($"Generating preview for video {videoEntry.VideoId}...");
                 GeneratePreviews(filePath);
                 Console.WriteLine($"Preview generated for video {videoEntry.VideoId}.");
-                NotifyVideosChanged();
                 await CompressVideo(filePath);  
                 File.Delete(filePath);
             }
@@ -352,6 +353,8 @@ namespace MediaUpload
             generatedPreview.BeginOutputReadLine();
             generatedPreview.BeginErrorReadLine();
             await generatedPreview.WaitForExitAsync();
+
+            NotifyVideosChanged();
 
             return;
         }
