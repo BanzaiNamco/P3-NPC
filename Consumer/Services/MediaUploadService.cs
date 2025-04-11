@@ -70,13 +70,13 @@ namespace MediaUpload
             };
             return process;
         }
-
+            
         public static Process GenerateThumbnail(string inputFilePath, string outputFilePath) {
             if (!codecSet) { TryEncoders(); }
             var process = new Process {
                 StartInfo = new ProcessStartInfo {
                     FileName = Exe,
-                    Arguments = $"-i \"{inputFilePath}\" -ss 00:00:00.000 -vframes 1 -q:v 2 \"{outputFilePath}\"",
+                    Arguments = $"-i \"{inputFilePath}\" -vf  \"thumbnail\" -frames:v 1 \"{outputFilePath}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -91,7 +91,7 @@ namespace MediaUpload
             var process = new Process {
                 StartInfo = new ProcessStartInfo {
                     FileName = Exe,
-                    Arguments = $"-i \"{inputFilePath}\" -vcodec {codec} -t 10 -c copy \"{outputFilePath}\"",
+                    Arguments = $"-i \"{inputFilePath}\" -t 10 -c copy \"{outputFilePath}\"",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -190,7 +190,7 @@ namespace MediaUpload
                         }
                     }
 
-                    videoEntry.VideoId = chunk.FileName;
+                    videoEntry.VideoId = Path.GetFileName(GetUniqueFileName(Path.Combine(_tempFolder, chunk.FileName)));
                     videoEntry.TotalExpectedChunks = chunk.TotalChunks;
                 }
                 videoEntry.Chunks.Add(chunk.Data.ToByteArray());
@@ -239,12 +239,6 @@ namespace MediaUpload
 
                 Console.WriteLine($"Video downloaded: {filePath}");
 
-                //if (Path.GetExtension(filePath).Equals(".mkv", StringComparison.OrdinalIgnoreCase)) {
-                //    Console.WriteLine($"Converting MKV to MP4 for video {videoEntry.VideoId}...");
-                //    filePath = ConvertMkvToMp4(filePath);
-                //    Console.WriteLine($"Conversion complete for video {videoEntry.VideoId}. New file path: {filePath}");
-                //}
-
                 Console.WriteLine($"Generating preview for video {videoEntry.VideoId}...");
                 GeneratePreviews(filePath);
                 Console.WriteLine($"Preview generated for video {videoEntry.VideoId}.");
@@ -256,44 +250,6 @@ namespace MediaUpload
                 Console.WriteLine($"Error processing video {videoEntry.VideoId}: {ex.Message}");
             }
         }
-
-        //private static string ConvertMkvToMp4(string inputFilePath) {
-        //    var outputFilePath = GetUniqueFileName($"{Path.Combine(_uploadFolder, Path.GetFileNameWithoutExtension(inputFilePath)}");
-        //    var uniqueFilePath = GetUniqueFileName(inputFilePath);
-        //    var ffmpegArgs = $"-i \"{inputFilePath}\" -hwaccel cuda -hwaccel_device 0 -c:v h265_nvenc -preset slow -crf 24 \"{uniqueFilePath}\"";
-        //    Console.WriteLine($"Converting MKV to MP4 with ffmpeg");
-        //    try {
-
-        //    var process = new Process {
-        //        StartInfo = new ProcessStartInfo {
-        //            FileName = Path.Combine(Directory.GetCurrentDirectory(), "FFmpeg", "bin", "ffmpeg.exe"),
-        //            Arguments = ffmpegArgs,
-        //            RedirectStandardOutput = true,
-        //            RedirectStandardError = true,
-        //            UseShellExecute = false,
-        //            CreateNoWindow = true
-        //        }
-        //    };
-
-        //    process.OutputDataReceived += (sender, args) => { };
-        //    process.ErrorDataReceived += (sender, args) => { };
-        //    ffmpegProcesses.Add(process);
-        //    process.Start();
-        //    process.BeginOutputReadLine();
-        //    process.BeginErrorReadLine();
-        //    process.WaitForExit();
-
-        //    }  catch (Exception e) {
-        //        Console.WriteLine(e);
-        //    }
-
-        //    //if (process.ExitCode != 0) {
-        //    //    throw new Exception($"FFmpeg conversion failed for {inputFilePath}");
-        //    //}
-
-        //    File.Delete(inputFilePath);
-        //    return outputFilePath;
-        //}
 
         private static string GetUniqueFileName(string filePath) {
             if (!File.Exists(filePath)) {
@@ -325,7 +281,7 @@ namespace MediaUpload
                 var fileName = Path.GetFileNameWithoutExtension(filePath);
                 var compressedFilePath = Path.Combine(_uploadFolder, $"{fileName}.mp4");
                 compressedFilePath = GetUniqueFileName(compressedFilePath);
-                Console.WriteLine($"Compressing video with ffmpeg");
+                Console.WriteLine($"Compressing video \"{filePath}\" to \"{compressedFilePath}\"with ffmpeg");
                 var ffmpegProcess = FFmpeg.CompressVideo(filePath, compressedFilePath);
                 ffmpegProcess.OutputDataReceived += (sender, args) => { };
                 ffmpegProcess.ErrorDataReceived += (sender, args) => { };
@@ -352,9 +308,9 @@ namespace MediaUpload
             previewVideo = GetUniqueFileName(previewVideo);
             previewThumbnail = GetUniqueFileName(previewThumbnail);
 
-            Console.WriteLine($"Generating thumbnail with ffmpeg");
+            Console.WriteLine($"Generating thumbnail of \"{filePath}\" with ffmpeg");
             var generatedThumbnail = FFmpeg.GenerateThumbnail(filePath, previewThumbnail);
-            Console.WriteLine($"Generating video preview with ffmpeg");
+            Console.WriteLine($"Generating 10 second video preview \"{filePath}\" with ffmpeg");
             var generatedPreview = FFmpeg.GeneratePreview(filePath, previewVideo);
 
             generatedThumbnail.OutputDataReceived += (sender, args) => { };
