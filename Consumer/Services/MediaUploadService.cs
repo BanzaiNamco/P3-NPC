@@ -148,6 +148,7 @@ namespace MediaUpload
         private readonly string _tempFolder = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos\\Temp");
         private readonly string _previewFolder = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos\\Previews");
         private BlockingCollection<VideoEntry> videoQueue;
+        private readonly ConcurrentDictionary<String, VideoEntry> videos = new();
         private readonly ConcurrentDictionary<string, bool> secondaryQueue = new();
         private int maxQueueLength = 10;
         private Thread[] _workerThreads;
@@ -159,6 +160,9 @@ namespace MediaUpload
         private static List<Process> ffmpegProcesses = new List<Process>();
         private readonly SemaphoreSlim compressionSemaphore = new (3);
         public void NotifyVideosChanged() {
+            OnVideosChanged?.Invoke();
+        }
+        public void NotifyUploadsChanged() {
             OnVideosChanged?.Invoke();
         }
 
@@ -357,6 +361,18 @@ namespace MediaUpload
             NotifyVideosChanged();
 
             return;
+        }
+
+        public Dictionary<string, float> GetUploadingVideos() {
+            Dictionary<string, float> uploadingVideos = new ();
+            foreach (var video in videos) {
+                if (video.Value.IsComplete) {
+                    continue;
+                }
+                var progress = 100 * video.Value.ReceivedChunks / (float)video.Value.TotalExpectedChunks;
+                uploadingVideos.Add(FileTable.Instance.Get(video.Key), progress);
+            }
+            return uploadingVideos;
         }
         public Dictionary<string, string> GetVideoPreviews() {
             var previewFolder = Path.Combine(_uploadFolder, "Previews");
