@@ -4,12 +4,18 @@ option csharp_namespace = "MediaUpload";
 
 service MediaUpload {
   rpc UploadMedia (stream VideoChunk) returns (UploadStatus);
+  rpc CheckDuplicate (HashRequest) returns (UploadStatus);
+}
+
+message HashRequest {
+	string hash = 1;
 }
 
 message VideoChunk {
   string fileName = 1;
   bytes data = 2;
   uint32 totalChunks = 3;
+  string hash = 4;
 }
 
 message UploadStatus {
