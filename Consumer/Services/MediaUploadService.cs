@@ -237,8 +237,7 @@ namespace MediaUpload
                     }
                     videoEntry.VideoId = Guid.NewGuid().ToString();
                     FileTable.Instance.Add(videoEntry.VideoId, chunk.FileName);
-
-                    //videoEntry.VideoId = Path.GetFileName(GetUniqueFileName(Path.Combine(_tempFolder, chunk.FileName)));
+                    videos.TryAdd(videoEntry.VideoId, videoEntry);
                     videoEntry.TotalExpectedChunks = chunk.TotalChunks;
                 }
                 videoEntry.Chunks.Add(chunk.Data.ToByteArray());
@@ -249,6 +248,7 @@ namespace MediaUpload
             if (!videoEntry.IsComplete) {
                 Console.WriteLine($"Video {videoEntry.VideoId} is incomplete. Rejecting upload.");
                 secondaryQueue.TryRemove(videoEntry.VideoId, out _);
+                videos.TryRemove(videoEntry.VideoId, out _);
                 return new UploadStatus { Success = false, Message = "Video upload incomplete." };
             }
             secondaryQueue.Remove(videoEntry.VideoId, out _);
