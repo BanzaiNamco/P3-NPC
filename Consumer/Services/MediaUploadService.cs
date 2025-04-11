@@ -44,7 +44,7 @@ namespace MediaUpload
                     process.WaitForExit();
 
                     if (process.ExitCode == 0) {
-                        codec = c;
+                        codec = c; 
                         Console.WriteLine($"Codec Set: {codec}");
                         codecSet = true;
                         break;
@@ -56,49 +56,37 @@ namespace MediaUpload
             }
         }
 
-        public static Process CompressVideo(string inputFilePath, string outputFilePath) {
-            if (!codecSet) { TryEncoders(); }
-            var process = new Process {
-                StartInfo = new ProcessStartInfo {
-                    FileName = Exe,
-                    Arguments = $"-i \"{inputFilePath}\" -vcodec {codec} -preset fast \"{outputFilePath}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
+        private static ProcessStartInfo ffmpegInfo(string arguments) {
+            return new ProcessStartInfo {
+                FileName = Exe,
+                Arguments = arguments,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
             };
-            return process;
         }
-            
-        public static Process GenerateThumbnail(string inputFilePath, string outputFilePath) {
+        
+        public static Process New(string inputFilePath, string outputFilePath, int method) {
             if (!codecSet) { TryEncoders(); }
-            var process = new Process {
-                StartInfo = new ProcessStartInfo {
-                    FileName = Exe,
-                    Arguments = $"-i \"{inputFilePath}\" -vf  \"thumbnail\" -frames:v 1 \"{outputFilePath}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            return process;
-        }
-
-        public static Process GeneratePreview(string inputFilePath, string outputFilePath) {
-            if (!codecSet) { TryEncoders(); }
-            var process = new Process {
-                StartInfo = new ProcessStartInfo {
-                    FileName = Exe,
-                    Arguments = $"-i \"{inputFilePath}\" -t 10 -c copy \"{outputFilePath}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-            return process;
+            ProcessStartInfo processStartInfo;
+            switch (method) {
+                case 0: // thumbnail
+                    processStartInfo = ffmpegInfo($"-i \"{inputFilePath}\" -vf \"thumbnail\" -frames:v 1 \"{outputFilePath}\"");
+                    break;
+                case 1: // 10s preview
+                    processStartInfo = ffmpegInfo($"-i \"{inputFilePath}\" -t 10 -c copy \"{outputFilePath}\"");
+                    break;
+                case 2: // compression
+                    processStartInfo = ffmpegInfo($"-i \"{inputFilePath}\" -c:v {codec} -preset fast \"{outputFilePath}\"");
+                    break;
+                default: // default to thumbnail
+                    processStartInfo = ffmpegInfo($"-i \"{inputFilePath}\" -vf \"thumbnail\" -frames:v 1 \"{outputFilePath}\"");
+                    break;
+            }
+            return new Process {
+                StartInfo = processStartInfo
+            }; ;
         }
     }
 
@@ -243,7 +231,7 @@ namespace MediaUpload
                 GeneratePreviews(filePath);
                 Console.WriteLine($"Preview generated for video {videoEntry.VideoId}.");
                 NotifyVideosChanged();
-                await CompressVideo(filePath);
+                await CompressVideo(filePath);  
                 File.Delete(filePath);
             }
             catch (Exception ex) {
@@ -282,7 +270,7 @@ namespace MediaUpload
                 var compressedFilePath = Path.Combine(_uploadFolder, $"{fileName}.mp4");
                 compressedFilePath = GetUniqueFileName(compressedFilePath);
                 Console.WriteLine($"Compressing video \"{filePath}\" to \"{compressedFilePath}\"with ffmpeg");
-                var ffmpegProcess = FFmpeg.CompressVideo(filePath, compressedFilePath);
+                var ffmpegProcess = FFmpeg.New(filePath, compressedFilePath, 2);
                 ffmpegProcess.OutputDataReceived += (sender, args) => { };
                 ffmpegProcess.ErrorDataReceived += (sender, args) => { };
                 ffmpegProcesses.Add(ffmpegProcess);
@@ -309,9 +297,9 @@ namespace MediaUpload
             previewThumbnail = GetUniqueFileName(previewThumbnail);
 
             Console.WriteLine($"Generating thumbnail of \"{filePath}\" with ffmpeg");
-            var generatedThumbnail = FFmpeg.GenerateThumbnail(filePath, previewThumbnail);
+            var generatedThumbnail = FFmpeg.New(filePath, previewThumbnail, 0);
             Console.WriteLine($"Generating 10 second video preview \"{filePath}\" with ffmpeg");
-            var generatedPreview = FFmpeg.GeneratePreview(filePath, previewVideo);
+            var generatedPreview = FFmpeg.New(filePath, previewVideo, 1);
 
             generatedThumbnail.OutputDataReceived += (sender, args) => { };
             generatedThumbnail.ErrorDataReceived += (sender, args) => { };
