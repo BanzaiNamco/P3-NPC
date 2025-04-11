@@ -48,13 +48,29 @@ public class VideoUploader
         while (videoQueue.TryDequeue(out var filePath))
         {
             Console.WriteLine($"[Thread {threadId}]:\tUploading \"{filePath}\"");
-            var success = await UploadVideoWithRetryAsync(threadId, filePath);
+            string hash = await Hashify(filePath);
+            var hashResponse = await _client.CheckDuplicateAsync(new HashRequest { Hash = hash });
+            if (hashResponse.Success) {
+                await UploadVideoWithRetryAsync(threadId, filePath, hash);
+            }
+            else {
+                Console.WriteLine($"[Thread {threadId}]:\t{hashResponse.Message}");
+            }
         }
 
         Console.WriteLine($"[Thread {threadId}]:\tCompleted all uploads in \"{directory}\".");
     }
 
-    private async Task<bool> UploadVideoWithRetryAsync(int? threadId, string filePath)
+    private async Task<string> Hashify(string filePath) {
+        var sha256 = System.Security.Cryptography.SHA256.Create();
+        var stream = File.OpenRead(filePath);
+        var hashBytes = sha256.ComputeHash(stream);
+        var hash = BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+        stream.Close();
+        return hash;
+    }
+
+    private async Task<bool> UploadVideoWithRetryAsync(int? threadId, string filePath, string hash)
     {
         const int maxRetries = 1; // Maximum number of retries
         for (int attempt = 1; attempt <= maxRetries; attempt++)
@@ -68,11 +84,11 @@ public class VideoUploader
                 int bytesRead;
                 while ((bytesRead = await fileStream.ReadAsync(buffer)) > 0)
                 {
-                    var chunk = new VideoChunk
-                    {
+                    var chunk = new VideoChunk {
                         FileName = Path.GetFileName(filePath),
                         Data = Google.Protobuf.ByteString.CopyFrom(buffer, 0, bytesRead),
-                        TotalChunks = (uint)Math.Ceiling((double)fileStream.Length / buffer.Length)
+                        TotalChunks = (uint)Math.Ceiling((double)fileStream.Length / buffer.Length),
+                        Hash = hash
                     };
 
                     await call.RequestStream.WriteAsync(chunk);
