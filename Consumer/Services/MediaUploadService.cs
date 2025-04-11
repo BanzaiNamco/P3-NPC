@@ -298,23 +298,6 @@ namespace MediaUpload
                 return filePath;
             }
             
-            string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(filePath);
-            string fileDirectory = Path.GetDirectoryName(filePath);
-            string extension = Path.GetExtension(filePath);
-            int count = 1;
-
-            string newFileName;
-            string newFullPath;
-
-            do {
-                newFileName = $"{fileNameWithoutExtension} ({count}){extension}";
-                newFullPath = Path.Combine(fileDirectory, newFileName);
-                count++;
-            } while (File.Exists(newFullPath));
-
-            return newFullPath;
-        }
-
         private async Task CompressVideo(string filePath) {
             await compressionSemaphore.WaitAsync();
             try {
