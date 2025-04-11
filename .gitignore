@@ -371,3 +371,4 @@ FodyWeavers.xsd
 !FFmpeg/bin
 !FFmpeg/bin/*
 *.png
+/Consumer/UploadedVideos

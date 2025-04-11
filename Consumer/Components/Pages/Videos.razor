@@ -17,18 +17,18 @@ else
 {
     <div class="gallery">
         @foreach (var video in videoPreviews) {
-            var url = baseUrl + video;
+            var url = baseUrl + video.Key;
             <div class="gallery-item">
                 <div class="video-entry">
-                    @if (selectedVideo == video) {
+                    @if (selectedVideo == video.Key) {
                         <video preload="metadata" controls autoplay class="video-video" muted onloadedmetadata="this.volume=0.1">
-                            <source src="@url" type="video/mp4">
+                            <source src="@url.Replace(".png", ".mp4")" type="video/mp4">
                         </video>
                     }
                     else {
-                        <img src="@url.Replace(".mp4", ".png")" @onmouseover="() => PlayVideo(video)" @onmouseleave="() => CloseVideo()" class="video-thumbnail" />
+                        <img src="@url.Replace(".mp4", ".png")" @onmouseover="() => PlayVideo(video.Key)" @onmouseleave="() => CloseVideo()" class="video-thumbnail" />
                     }
-                    <div class="video-title">@video</div>
+                    <div class="video-title">@video.Value</div>
                 </div>
             </div>
         }
@@ -36,7 +36,7 @@ else
 }
 
 @code {
-    private List<string> videoPreviews;
+    private Dictionary<string, string> videoPreviews;
     private string baseUrl;
     private string? selectedVideo;
 

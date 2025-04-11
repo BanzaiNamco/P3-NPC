@@ -44,12 +44,13 @@ namespace MediaUpload
                     process.WaitForExit();
 
                     if (process.ExitCode == 0) {
-                        codec = c; 
+                        codec = c;
                         Console.WriteLine($"Codec Set: {codec}");
                         codecSet = true;
                         break;
                     }
-                } catch (Exception e) {
+                }
+                catch (Exception e) {
                     Console.WriteLine($"Error checking codec {c}: {e.Message}");
                     continue;
                 }
@@ -66,7 +67,7 @@ namespace MediaUpload
                 CreateNoWindow = true
             };
         }
-        
+
         public static Process New(string inputFilePath, string outputFilePath, int method) {
             if (!codecSet) { TryEncoders(); }
             ProcessStartInfo processStartInfo;
@@ -87,6 +88,58 @@ namespace MediaUpload
             return new Process {
                 StartInfo = processStartInfo
             }; ;
+        }
+    }
+
+    public class FileTable {
+        private static FileTable instance;
+        private static readonly object lockObject = new object();
+        private Dictionary<string, string> fileTable = new Dictionary<string, string>();
+        private static string _fileTablePath = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos\\fileTable.txt");
+        public static FileTable Instance {
+            get {
+                lock (lockObject) {
+                    if (instance == null) {
+                        instance = new FileTable();
+                    }
+                }
+                return instance;
+            }
+        }
+        public void Add(string hash, string fileName) {
+            lock (lockObject) {
+                fileTable[hash] = fileName;
+                SaveTable();
+            }
+        }
+        public string Get(string hash) {
+            lock (lockObject) {
+                return fileTable.TryGetValue(hash, out var value) ? value : null;
+            }
+        }
+        public void SaveTable() {
+            lock (lockObject) {
+                using (var writer = new StreamWriter(_fileTablePath)) {
+                    foreach (var kvp in fileTable) {
+                        writer.WriteLine($"{kvp.Key}:{kvp.Value}");
+                    }
+                }
+            }
+        }
+
+        public void LoadTable() {
+            lock (lockObject) {
+                if (!File.Exists(_fileTablePath)) return;
+                using (var reader = new StreamReader(_fileTablePath)) {
+                    string line;
+                    while ((line = reader.ReadLine()) != null) {
+                        var parts = line.Split(':');
+                        if (parts.Length == 2) {
+                            fileTable[parts[0]] = parts[1];
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -123,6 +176,7 @@ namespace MediaUpload
         public MediaUploadService() {
             videoQueue = new BlockingCollection<VideoEntry>(maxQueueLength);
             InitializeFiles();
+            FileTable.Instance.LoadTable();
         }
 
         public bool Configure(int maxThreads, int maxQueue) {
@@ -177,8 +231,10 @@ namespace MediaUpload
                             return new UploadStatus { Success = false, Message = "Failed to add video to the secondary queue." };
                         }
                     }
+                    videoEntry.VideoId = Guid.NewGuid().ToString();
+                    FileTable.Instance.Add(videoEntry.VideoId, chunk.FileName);
 
-                    videoEntry.VideoId = Path.GetFileName(GetUniqueFileName(Path.Combine(_tempFolder, chunk.FileName)));
+                    //videoEntry.VideoId = Path.GetFileName(GetUniqueFileName(Path.Combine(_tempFolder, chunk.FileName)));
                     videoEntry.TotalExpectedChunks = chunk.TotalChunks;
                 }
                 videoEntry.Chunks.Add(chunk.Data.ToByteArray());
@@ -190,7 +246,7 @@ namespace MediaUpload
                 secondaryQueue.TryRemove(videoEntry.VideoId, out _);
                 return new UploadStatus { Success = false, Message = "Video upload incomplete." };
             }
-
+            secondaryQueue.Remove(videoEntry.VideoId, out _);
             if (!videoQueue.TryAdd(videoEntry, TimeSpan.FromSeconds(1))) {
                 Console.WriteLine($"Failed to add video {videoEntry.VideoId} to the queue.");
                 secondaryQueue.Remove(videoEntry.VideoId, out _);
@@ -204,7 +260,6 @@ namespace MediaUpload
         private void ProcessQueue() {
             foreach (var videoEntry in videoQueue.GetConsumingEnumerable()) {
                 try {
-                    secondaryQueue.Remove(videoEntry.VideoId, out _);
                     ProcessVideo(videoEntry);
                 }
                 catch (Exception ex) {
@@ -268,7 +323,6 @@ namespace MediaUpload
 
                 var fileName = Path.GetFileNameWithoutExtension(filePath);
                 var compressedFilePath = Path.Combine(_uploadFolder, $"{fileName}.mp4");
-                compressedFilePath = GetUniqueFileName(compressedFilePath);
                 Console.WriteLine($"Compressing video \"{filePath}\" to \"{compressedFilePath}\"with ffmpeg");
                 var ffmpegProcess = FFmpeg.New(filePath, compressedFilePath, 2);
                 ffmpegProcess.OutputDataReceived += (sender, args) => { };
@@ -292,9 +346,6 @@ namespace MediaUpload
             var fileName = Path.GetFileNameWithoutExtension(filePath);
             var previewVideo = Path.Combine(_previewFolder, $"{fileName}.mp4");
             var previewThumbnail = Path.Combine(_previewFolder, $"{fileName}.png");
-
-            previewVideo = GetUniqueFileName(previewVideo);
-            previewThumbnail = GetUniqueFileName(previewThumbnail);
 
             Console.WriteLine($"Generating thumbnail of \"{filePath}\" with ffmpeg");
             var generatedThumbnail = FFmpeg.New(filePath, previewThumbnail, 0);
@@ -322,14 +373,20 @@ namespace MediaUpload
 
             return;
         }
-        public List<string> GetVideoPreviews() {
+        public Dictionary<string, string> GetVideoPreviews() {
             var previewFolder = Path.Combine(_uploadFolder, "Previews");
             if (!Directory.Exists(previewFolder)) {
-                return new List<string>();
+                return new Dictionary<string, string>();
             }
 
-            return [.. Directory.GetFiles(previewFolder)
-                    .Where(file => !(Path.GetExtension(file).Equals(".png", StringComparison.OrdinalIgnoreCase))).Select(Path.GetFileName)];
+            var returnDictionary = new Dictionary<string, string>();
+            foreach (var file in Directory.GetFiles(previewFolder)) {
+                if (Path.GetExtension(file).Equals(".png")) {
+                    returnDictionary.Add(Path.GetFileName(file), FileTable.Instance.Get(Path.GetFileNameWithoutExtension(file)));
+                }
+            }
+
+            return returnDictionary;
         }
 
         public bool isConfigSet() { return configSet; }
