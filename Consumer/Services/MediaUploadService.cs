@@ -95,7 +95,7 @@ namespace MediaUpload
         private static FileTable instance;
         private static readonly object lockObject = new object();
         private Dictionary<string, string> fileTable = new Dictionary<string, string>();
-        private static string _fileTablePath = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos\\fileTable.txt");
+        private static string _fileTablePath = Path.Combine(Directory.GetCurrentDirectory(), "UploadedVideos\\_fileTable.txt");
         public static FileTable Instance {
             get {
                 lock (lockObject) {
