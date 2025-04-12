@@ -47,6 +47,10 @@ public class VideoUploader
 
         while (videoQueue.TryDequeue(out var filePath))
         {
+            if (Path.GetExtension(filePath) != ".mp4" && Path.GetExtension(filePath) != ".mkv") {
+                Console.WriteLine($"[Thread {threadId}]:\tSkipping non-video file: {filePath}");
+                continue;
+            }
             Console.WriteLine($"[Thread {threadId}]:\tUploading \"{filePath}\"");
             string hash = await Hashify(filePath);
             var hashResponse = await _client.CheckDuplicateAsync(new HashRequest { Hash = hash });
@@ -139,9 +143,9 @@ public class Program
     }
     public static async Task Main(string[] args)
     {
+        Initialize();
         Console.Write("Enter the number of threads to use for uploading: ");
         int threadCount;
-        Initialize();
         while (!int.TryParse(Console.ReadLine(), out threadCount) || threadCount < 1 || threadCount > 8)
         {
             Console.WriteLine("Invalid input. Please enter an integer from 1 to 8.\n");
