@@ -1,0 +1,15 @@
+PPT: https://www.canva.com/design/DAGj17BiVCI/zFLyqb8mIVhPrBnjlawBdA/edit?utm_content=DAGj17BiVCI&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton
+
+Youtube: https://youtu.be/TWNjwmhujRY
+
+P3 Timestamps (they are in the youtube video's description box as well)
+
+1:09 - Producer process
+1:26 - Producer threads and consumer receiving
+2:32 - Consumer threads
+4:31 - Upload limits
+6:11 - Duplicate detection (bonus)
+7:11 - Video compression (bonus)
+10:35 - Network setup 
+12:30 - Preview on hover
+18:16 - Video playback
