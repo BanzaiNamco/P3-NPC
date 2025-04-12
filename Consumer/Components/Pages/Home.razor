@@ -1,0 +1,71 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+
+<PageTitle>Home</PageTitle>
+
+<h1>Configure Media Upload Service</h1>
+
+<EditForm Model="@config" OnValidSubmit="@SubmitConfiguration">
+    <DataAnnotationsValidator />
+
+    <div>
+        <label>Max Concurrent Threads:</label>
+        <InputNumber @bind-Value="config.MaxThreads" class="form-control" />
+        <ValidationMessage For="@(() => config.MaxThreads)" />
+    </div>
+
+    <div>
+        <label>Max Queue Length:</label>
+        <InputNumber @bind-Value="config.MaxQueue" class="form-control" />
+        <ValidationMessage For="@(() => config.MaxQueue)" />
+    </div>
+
+    <button type="submit">Submit</button>
+</EditForm>
+
+@code {
+
+    private bool configSetSuccess = false;
+    private ConfigModel config = new ConfigModel();
+
+    protected override void OnInitialized() {
+        if (mediaUploadService.isConfigSet()) {
+            NavigationManager.NavigateTo("/videos");
+        }
+    }
+
+    private void SubmitConfiguration()
+    {
+        Console.WriteLine($"Submitting: MaxThreads={config.MaxThreads}, MaxQueue={config.MaxQueue}");
+        configSetSuccess = mediaUploadService.Configure(config.MaxThreads, config.MaxQueue);
+        if (configSetSuccess) {
+            Console.WriteLine("Configuration submitted successfully.");
+            NavigationManager.NavigateTo("/videos");
+        } else {
+            Console.WriteLine("Configuration submission failed. Perhaps the server is already configured.");
+            // show a message to the user
+            JSRuntime?.InvokeVoidAsync("alert", "Configuration submission failed. Perhaps the server is already configured.");
+
+
+        }
+    }
+    [Inject]
+    private IJSRuntime JSRuntime { get; set; }
+    [Inject]
+    private MediaUpload.MediaUploadService mediaUploadService { get; set; }
+    [Inject]
+    private NavigationManager NavigationManager { get; set; }
+
+    public class ConfigModel {
+        [Required(ErrorMessage = "Max threads is required")]
+        [Range(1, 10, ErrorMessage = "Max Threads must be from 1 to 10")]
+        public int MaxThreads { get; set; }
+
+        [Required(ErrorMessage = "Max queue is required")]
+        [Range(1, 1000, ErrorMessage = "Max Queue must be 1 to 1000")]
+        public int MaxQueue { get; set; }
+    }
+}
+
+

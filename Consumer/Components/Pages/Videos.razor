@@ -1,0 +1,110 @@
+@page "/videos"
+@rendermode InteractiveServer
+
+<PageTitle>Videos</PageTitle>
+
+<h1>Gallery</h1>
+
+@if (videoPreviews == null)
+{
+    <p>Loading videos...</p>
+}
+else if (!videoPreviews.Any())
+{
+    <p>No videos available.</p>
+}
+else
+{
+    <div class="gallery">
+        @foreach (var video in uploadingVideos) {
+            var url = baseUrl + video.Key;
+            <div class="gallery-item">
+                <div class="video-entry">
+                    <div class="loading-container">
+                        <div class="loading-icon"></div>
+                        <div class="upload-progress">@($"{video.Value:F0}%")</div>
+                    </div>
+                    <div class="video-title">@video.Key</div>
+                </div>
+            </div>
+        }
+        @foreach (var video in videoPreviews) {
+            var url = baseUrl + video.Key;
+            <div class="gallery-item">
+                <div class="video-entry">
+                    @if (selectedVideo == video.Key) {
+                        <video preload="metadata" controls autoplay class="video-video" muted onloadedmetadata="this.volume=0.1">
+                            <source src="@url.Replace(".png", ".mp4")" type="video/mp4">
+                        </video>
+                    }
+                    else {
+                        <img src="@url.Replace(".mp4", ".png")" @onmouseover="() => PlayVideo(video.Key)" @onmouseleave="() => CloseVideo()" class="video-thumbnail" />
+                    }
+                    <div class="video-title">@video.Value</div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private Dictionary<string, string> videoPreviews;
+    private Dictionary<string, float> uploadingVideos;
+    private string baseUrl;
+    private string? selectedVideo;
+    private bool canUpdate = true;
+    private readonly SemaphoreSlim updateSemaphore = new(1);
+    private DateTime lastUpdateTime = DateTime.MinValue;
+    private readonly TimeSpan minUpdateInterval = TimeSpan.FromMilliseconds(300); 
+
+    [Inject]
+    private MediaUpload.MediaUploadService MediaUploadService { get; set; }
+
+    [Inject]
+    private NavigationManager NavigationManager { get; set; }
+
+    protected override void OnInitialized()
+    {
+        if (!MediaUploadService.isConfigSet()) {
+            NavigationManager.NavigateTo("/");
+        }
+        baseUrl = "/UploadedVideos/Previews/";
+        videoPreviews = MediaUploadService.GetVideoPreviews();
+        uploadingVideos = MediaUploadService.GetUploadingVideos();
+        MediaUploadService.OnVideosChanged += LoadVideos;
+        Task.Run(() => AutoRefreshVideos());
+    }
+
+    private async Task AutoRefreshVideos() {
+        while (true) {
+            LoadVideos();
+            await Task.Delay(600);
+        }
+    }
+
+    void PlayVideo(string video) {
+        selectedVideo = video;
+        InvokeAsync(StateHasChanged);
+    }
+
+    void CloseVideo() {
+        selectedVideo = null;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async void LoadVideos() {
+        await updateSemaphore.WaitAsync();
+        try {
+            var now = DateTime.Now;
+            if (now - lastUpdateTime < minUpdateInterval) { return;  }
+            if (!canUpdate) { return; }
+            videoPreviews = MediaUploadService.GetVideoPreviews();
+            uploadingVideos = MediaUploadService.GetUploadingVideos();
+            await InvokeAsync(StateHasChanged);
+        }
+        finally {
+            updateSemaphore.Release();
+        }
+
+    }
+}

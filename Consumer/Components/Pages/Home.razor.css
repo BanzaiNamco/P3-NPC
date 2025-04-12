@@ -1,0 +1,10 @@
+﻿button[type=submit] {
+    background-color: darkviolet;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    margin: 10px 0px;
+    border-radius: 5px;
+    cursor: pointer;
+    width: 15rem;
+}

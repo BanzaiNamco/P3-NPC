@@ -361,3 +361,14 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# all mp4 files
+*.mp4
+*.mkv
+
+# ffmpeg folder should not be ignored
+!FFmpeg/*
+!FFmpeg/bin
+!FFmpeg/bin/*
+*.png
+/Consumer/UploadedVideos
