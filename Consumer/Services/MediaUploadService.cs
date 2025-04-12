@@ -10,11 +10,12 @@ namespace MediaUpload
 {
     public class VideoEntry {
         public string VideoId { get; set; }
+        public string FileName { get; set; }
         public List<byte[]> Chunks { get; set; } = new List<byte[]>();
         public uint TotalExpectedChunks { get; set; }
         public uint ReceivedChunks { get; set; }
 
-        public bool IsComplete => ReceivedChunks >= TotalExpectedChunks;
+        public bool IsComplete { get; set; } = false;
     }
 
     public class FFmpeg {
@@ -80,6 +81,9 @@ namespace MediaUpload
                     break;
                 case 2: // compression
                     processStartInfo = ffmpegInfo($"-i \"{inputFilePath}\" -c:v {codec} -preset fast \"{outputFilePath}\"");
+                    break;
+                case 3: // mkv to mp4
+                    processStartInfo = ffmpegInfo($"-i \"{inputFilePath}\" -codec copy \"{outputFilePath}\"");
                     break;
                 default: // default to thumbnail
                     processStartInfo = ffmpegInfo($"-i \"{inputFilePath}\" -vf \"thumbnail\" -frames:v 1 \"{outputFilePath}\"");
@@ -247,9 +251,10 @@ namespace MediaUpload
                             return new UploadStatus { Success = false, Message = "Failed to add video to the secondary queue." };
                         }
                     }
-                    videoEntry.VideoId = chunk.Hash;
-                    FileTable.Instance.Add(videoEntry.VideoId, chunk.FileName);
-                    videos.TryAdd(videoEntry.VideoId, videoEntry);
+                    videoEntry.FileName = chunk.FileName;
+                    videoEntry.VideoId = chunk.Hash + Path.GetExtension(chunk.FileName);
+                    FileTable.Instance.Add(chunk.Hash, chunk.FileName);
+                    videos.TryAdd(chunk.Hash, videoEntry);
                     videoEntry.TotalExpectedChunks = chunk.TotalChunks;
                 }
                 videoEntry.Chunks.Add(chunk.Data.ToByteArray());
@@ -257,7 +262,7 @@ namespace MediaUpload
                 NotifyUploadsChanged();
             }
 
-            if (!videoEntry.IsComplete) {
+            if (videoEntry.ReceivedChunks != videoEntry.TotalExpectedChunks) {
                 Console.WriteLine($"Video {videoEntry.VideoId} is incomplete. Rejecting upload.");
                 secondaryQueue.TryRemove(videoEntry.VideoId, out _);
                 videos.TryRemove(videoEntry.VideoId, out _);
@@ -298,10 +303,19 @@ namespace MediaUpload
                 }
 
                 Console.WriteLine($"Video downloaded: {filePath}");
-
                 Console.WriteLine($"Generating preview for video {videoEntry.VideoId}...");
-                GeneratePreviews(filePath);
+                await GeneratePreviews(filePath);
                 Console.WriteLine($"Preview generated for video {videoEntry.VideoId}.");
+
+                if (Path.GetExtension(videoEntry.FileName).Equals(".mkv")) {
+                    await MKVtoMP4(filePath);
+                    File.Delete(filePath);
+                    videoEntry.VideoId = Path.ChangeExtension(videoEntry.VideoId, ".mp4");
+                    Console.WriteLine($"Video converted to MP4: {videoEntry.VideoId}");
+                    filePath = Path.Combine(_tempFolder, videoEntry.VideoId);
+                }
+                videoEntry.IsComplete = true;
+
                 await CompressVideo(filePath);
                 File.Delete(filePath);
             }
@@ -310,14 +324,31 @@ namespace MediaUpload
             }
         }
 
+        private async Task MKVtoMP4(string filePath) {
+            InitializeFiles();
+
+            var fileName = Path.GetFileName(filePath);
+            var fileOutput = Path.ChangeExtension(filePath, ".mp4");
+            Console.WriteLine($"Converting {fileName} to MP4.");
+            var ffmpegProcess = FFmpeg.New(filePath, fileOutput, 3);
+            ffmpegProcess.OutputDataReceived += (sender, args) => { };
+            ffmpegProcess.ErrorDataReceived += (sender, args) => { };
+            ffmpegProcesses.Add(ffmpegProcess);
+            ffmpegProcess.Start();
+            ffmpegProcess.BeginOutputReadLine();
+            ffmpegProcess.BeginErrorReadLine();
+            await ffmpegProcess.WaitForExitAsync();
+
+            return;
+        }
 
         private async Task CompressVideo(string filePath) {
             await compressionSemaphore.WaitAsync();
             try {
                 InitializeFiles();
 
-                var fileName = Path.GetFileNameWithoutExtension(filePath);
-                var compressedFilePath = Path.Combine(_uploadFolder, $"{fileName}.mp4");
+                var fileName = Path.GetFileName(filePath);
+                var compressedFilePath = Path.Combine(_uploadFolder, $"{fileName}");
                 Console.WriteLine($"Compressing video \"{filePath}\" to \"{compressedFilePath}\"with ffmpeg");
                 var ffmpegProcess = FFmpeg.New(filePath, compressedFilePath, 2);
                 ffmpegProcess.OutputDataReceived += (sender, args) => { };

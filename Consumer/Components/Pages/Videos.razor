@@ -5,6 +5,8 @@
 
 <h1>Gallery</h1>
 
+<div class="@(selectedVideo != null ? "no-scroll" : "")">
+
 @if (videoPreviews == null)
 {
     <p>Loading videos...</p>
@@ -15,9 +17,21 @@ else if (!videoPreviews.Any())
 }
 else
 {
+    @if (selectedVideo != null) {
+        <div class="modal-overlay" @onclick="CloseVideo">
+            <div class="modal-content" @onclick:stopPropagation>
+                <h2 class="video-title">@videoPreviews[selectedVideo]</h2>
+                <video preload="metadata" controls autoplay class="modal-video" muted onloadedmetadata="this.volume=0.1">
+                    <source src="@selectedVideoUrl" type="video/mp4">
+                </video>
+                <button class="close-button" @onclick="CloseVideo">X</button>
+            </div>
+        </div>
+    }
+   
     <div class="gallery">
         @foreach (var video in uploadingVideos) {
-            var url = baseUrl + video.Key;
+            var url = previewUrl + video.Key;
             <div class="gallery-item">
                 <div class="video-entry">
                     <div class="loading-container">
@@ -29,29 +43,36 @@ else
             </div>
         }
         @foreach (var video in videoPreviews) {
-            var url = baseUrl + video.Key;
+            var url = previewUrl + video.Key;
             <div class="gallery-item">
-                <div class="video-entry">
-                    @if (selectedVideo == video.Key) {
-                        <video preload="metadata" controls autoplay class="video-video" muted onloadedmetadata="this.volume=0.1">
+                <div class="video-entry" @onclick="() => PlayVideo(video.Key)">
+                    @if (hoveredVideo == video.Key) {
+                        <video preload="metadata" autoplay class="video-video" muted onloadedmetadata="this.volume=0">
                             <source src="@url.Replace(".png", ".mp4")" type="video/mp4">
                         </video>
                     }
                     else {
-                        <img src="@url.Replace(".mp4", ".png")" @onmouseover="() => PlayVideo(video.Key)" @onmouseleave="() => CloseVideo()" class="video-thumbnail" />
+                        <img src="@url.Replace(".mp4", ".png")" @onmouseover="() => PlayPreview(video.Key)" @onmouseleave="() => CloseVideo()" class="video-thumbnail" />
                     }
                     <div class="video-title">@video.Value</div>
                 </div>
             </div>
         }
     </div>
+
 }
+
+</div>
 
 @code {
     private Dictionary<string, string> videoPreviews;
     private Dictionary<string, float> uploadingVideos;
-    private string baseUrl;
+    private string previewUrl;
+    private string videoUrl;
+    private string tempUrl;
+    private string? hoveredVideo;
     private string? selectedVideo;
+    private string? selectedVideoUrl;
     private bool canUpdate = true;
     private readonly SemaphoreSlim updateSemaphore = new(1);
     private DateTime lastUpdateTime = DateTime.MinValue;
@@ -68,7 +89,9 @@ else
         if (!MediaUploadService.isConfigSet()) {
             NavigationManager.NavigateTo("/");
         }
-        baseUrl = "/UploadedVideos/Previews/";
+        previewUrl = "UploadedVideos/Previews/";
+        videoUrl = "UploadedVideos/";
+        tempUrl = "UploadedVideos/Temp/";
         videoPreviews = MediaUploadService.GetVideoPreviews();
         uploadingVideos = MediaUploadService.GetUploadingVideos();
         MediaUploadService.OnVideosChanged += LoadVideos;
@@ -82,15 +105,30 @@ else
         }
     }
 
-    void PlayVideo(string video) {
-        selectedVideo = video;
+    void PlayPreview(string video) {
+        hoveredVideo = video;
         InvokeAsync(StateHasChanged);
     }
 
     void CloseVideo() {
+        hoveredVideo = null;
         selectedVideo = null;
+        selectedVideoUrl = null;
         InvokeAsync(StateHasChanged);
     }
+
+    void PlayVideo(string video) {
+        selectedVideo = video;
+        var fileName = selectedVideo.Replace(".png", ".mp4");
+        var filePath = Path.Combine(videoUrl, fileName);
+        if (!File.Exists(filePath)) {
+            selectedVideoUrl = Path.Combine(tempUrl, fileName);
+        }
+		else {
+            selectedVideoUrl = filePath;
+		}
+		InvokeAsync(StateHasChanged);
+	}
 
     private async void LoadVideos() {
         await updateSemaphore.WaitAsync();
